@@ -1,8 +1,12 @@
+import { PageHeader } from '../../components/PageHeader'
+
 export function Students() {
-    return (
-        <div>
-            <h1>Alunos</h1>
-            <p>Gerencie sues alunos e acompanhe suas Informações.</p>
-        </div>
-    )
+  return (
+    <div>
+      <PageHeader
+        title="Alunos"
+        description="Gerencie seus alunos e acompanhe suas informações."
+      />
+    </div>
+  )
 }

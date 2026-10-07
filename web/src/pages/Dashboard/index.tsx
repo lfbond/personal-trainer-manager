@@ -1,8 +1,12 @@
+import { PageHeader } from '../../components/PageHeader'
+
 export function Dashboard() {
-    return (
-        <div>
-            <h1>Dashboard</h1>
-            <p>Visão geral do Personal Trainer Manager.</p>
-        </div>
-    )
+  return (
+    <div>
+      <PageHeader
+        title="Dashboard"
+        description="Visão geral do Personal Trainer Manager."
+      />
+    </div>
+  )
 }

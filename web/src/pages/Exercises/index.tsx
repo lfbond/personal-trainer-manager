@@ -1,8 +1,12 @@
-export function Exercises(){
-    return(
-        <div>
-            <h1>Exercícios</h1>
-            <p>Gerencie o catálogo de exercícios.</p>
-        </div>
-    )
+import { PageHeader } from '../../components/PageHeader'
+
+export function Exercises() {
+  return (
+    <div>
+      <PageHeader
+        title="Exercícios"
+        description="Gerencie o catálogo de exercícios."
+      />
+    </div>
+  )
 }
