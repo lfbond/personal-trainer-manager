@@ -1,0 +1,701 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OrganizationRole {
+  OWNER
+  ADMIN
+  TRAINER
+}
+
+enum UserRole {
+  TRAINER
+  STUDENT
+}
+
+enum StudentStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AnamnesisStatus {
+  DRAFT
+  COMPLETED
+}
+
+enum ScreeningStatus {
+  DRAFT
+  COMPLETED
+  CANCELLED
+}
+
+enum ScreeningAnswerType {
+  YES_NO
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  TEXT
+  NUMBER
+  DATE
+}
+
+enum RestrictionType {
+  JOINT
+  MUSCULAR
+  BONE
+  CARDIOVASCULAR
+  RESPIRATORY
+  NEUROLOGICAL
+  OTHER
+}
+
+enum BodyRegion {
+  NECK
+  SHOULDER
+  ELBOW
+  WRIST
+  HAND
+  SPINE
+  HIP
+  KNEE
+  ANKLE
+  FOOT
+  CHEST
+  OTHER
+}
+
+enum ExerciseCategory {
+  MACHINE_CABLE
+  FREE_WEIGHT
+}
+
+enum ExerciseLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum MuscleGroup {
+  CHEST
+  BACK
+  SHOULDERS
+  BICEPS
+  TRICEPS
+  LEGS
+  GLUTES
+  CALVES
+  CORE
+  CARDIO
+  FULL_BODY
+  OTHER
+}
+
+enum MuscleRole {
+  PRIMARY
+  SECONDARY
+}
+
+enum ExerciseStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+}
+
+enum WorkoutStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum WeightUnit {
+  KG
+  LB
+}
+
+enum GoalType {
+  HYPERTROPHY
+  WEIGHT_LOSS
+  STRENGTH
+  MUSCULAR_ENDURANCE
+  CARDIOVASCULAR_CONDITIONING
+  MOBILITY
+  FLEXIBILITY
+  GENERAL_HEALTH
+  SPORTS_PERFORMANCE
+  OTHER
+}
+
+enum GoalPriority {
+  PRIMARY
+  SECONDARY
+}
+
+enum GoalStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum AssessmentStatus {
+  DRAFT
+  COMPLETED
+  CANCELLED
+}
+
+enum SkinfoldSite {
+  BICEPS
+  TRICEPS
+  SUBSCAPULAR
+  SUPRAILIAC
+  SUPRASPINALE
+  ABDOMINAL
+  CHEST
+  MIDAXILLARY
+  THIGH
+  CALF
+  OTHER
+}
+
+enum BodySide {
+  LEFT
+  RIGHT
+}
+
+model Organization {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members             OrganizationMember[]
+  students            Student[]
+  workouts            Workout[]
+  physicalAssessments PhysicalAssessment[]
+}
+
+model OrganizationMember {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @db.Uuid
+  userId         String           @db.Uuid
+  role           OrganizationRole
+  isActive       Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  email        String   @unique
+  passwordHash String?
+  role         UserRole
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  organizationMemberships OrganizationMember[]
+
+  trainer  Trainer?
+  students Student[]
+}
+
+model Trainer {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @unique @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  students            Student[]
+  invitations         StudentInvitation[]
+  exerciseVariations  ExerciseVariation[]
+  workouts            Workout[]
+  physicalAssessments PhysicalAssessment[]
+}
+
+model Student {
+  id         String        @id @default(uuid()) @db.Uuid
+  trainerId  String        @db.Uuid
+  userId     String?       @db.Uuid
+  name       String
+  email      String?
+  phone      String?
+  birthDate  DateTime?     @db.Date
+  notes      String?
+  status     StudentStatus @default(ACTIVE)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  archivedAt DateTime?
+
+  organization        Organization          @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  trainer             Trainer               @relation(fields: [trainerId], references: [id], onDelete: Restrict)
+  user                User?                 @relation(fields: [userId], references: [id])
+  invitations         StudentInvitation[]
+  healthProfile       StudentHealthProfile?
+  restrictions        StudentRestriction[]
+  workouts            Workout[]
+  goals               StudentGoal[]
+  anamneses           StudentAnamnesis[]
+  screenings          StudentScreening[]
+  physicalAssessments PhysicalAssessment[]
+
+  organizationId String @db.Uuid
+
+  @@unique([organizationId, userId])
+  @@index([trainerId])
+  @@index([status])
+  @@index([organizationId])
+}
+
+model StudentScreening {
+  id        String @id @default(uuid()) @db.Uuid
+  studentId String @db.Uuid
+
+  questionnaireCode    String
+  questionnaireName    String
+  questionnaireVersion String
+
+  status ScreeningStatus @default(DRAFT)
+
+  respondedByUserId String?   @db.Uuid
+  startedAt         DateTime  @default(now())
+  completedAt       DateTime?
+
+  professionalNotes String?
+  followUpRequired  Boolean?
+  followUpNotes     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+
+  answers ScreeningAnswer[]
+
+  @@index([studentId, createdAt])
+  @@index([questionnaireCode, questionnaireVersion])
+  @@index([status])
+}
+
+model ScreeningAnswer {
+  id          String @id @default(uuid()) @db.Uuid
+  screeningId String @db.Uuid
+
+  questionCode String
+  questionText String
+  answerType   ScreeningAnswerType
+
+  answerValue Json?
+  notes       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  screening StudentScreening @relation(fields: [screeningId], references: [id], onDelete: Restrict)
+
+  @@unique([screeningId, questionCode])
+  @@index([screeningId])
+}
+
+model StudentInvitation {
+  id         String    @id @default(uuid()) @db.Uuid
+  trainerId  String    @db.Uuid
+  studentId  String    @db.Uuid
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  trainer Trainer @relation(fields: [trainerId], references: [id], onDelete: Restrict)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+
+  @@index([trainerId])
+  @@index([studentId])
+  @@index([expiresAt])
+}
+
+model StudentHealthProfile {
+  id               String   @id @default(uuid()) @db.Uuid
+  studentId        String   @unique @db.Uuid
+  usesMedication   Boolean?
+  medicationNotes  String?
+  medicalClearance Boolean?
+  clearanceNotes   String?
+  generalNotes     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+}
+
+model StudentRestriction {
+  id          String          @id @default(uuid()) @db.Uuid
+  studentId   String          @db.Uuid
+  type        RestrictionType
+  bodyRegion  BodyRegion
+  description String
+  notes       String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+
+  @@index([studentId])
+}
+
+model StudentAnamnesis {
+  id        String          @id @default(uuid()) @db.Uuid
+  studentId String          @db.Uuid
+  status    AnamnesisStatus @default(DRAFT)
+
+  occupation   String?
+  workRoutine  String?
+  sleepHours   Decimal? @db.Decimal(4, 1)
+  sleepQuality String?
+  stressLevel  String?
+
+  physicalActivityHistory String?
+  currentActivities       String?
+  weeklyFrequency         Int?
+  availableTrainingDays   Int?
+  preferredTrainingTime   String?
+
+  smokingStatus         String?
+  alcoholConsumption    String?
+  generalLifestyleNotes String?
+
+  healthHistory        String?
+  familyHealthHistory  String?
+  previousSurgeries    String?
+  currentSymptoms      String?
+  painDescription      String?
+  medicalFollowUpNotes String?
+
+  studentDeclarations String?
+  professionalNotes   String?
+
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+
+  @@index([studentId])
+  @@index([studentId, createdAt])
+  @@index([status])
+}
+
+model StudentGoal {
+  id          String       @id @default(uuid()) @db.Uuid
+  studentId   String       @db.Uuid
+  type        GoalType
+  priority    GoalPriority @default(PRIMARY)
+  status      GoalStatus   @default(ACTIVE)
+  description String?
+  targetDate  DateTime?    @db.Date
+  startedAt   DateTime     @default(now())
+  completedAt DateTime?
+  notes       String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Restrict)
+
+  @@index([studentId])
+  @@index([status])
+  @@index([studentId, status])
+}
+
+model Exercise {
+  id          String      @id @default(uuid()) @db.Uuid
+  code        String      @unique
+  name        String
+  muscleGroup MuscleGroup
+  description String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  variations ExerciseVariation[]
+
+  @@index([muscleGroup])
+}
+
+model ExerciseVariation {
+  id                String           @id @default(uuid()) @db.Uuid
+  exerciseId        String           @db.Uuid
+  trainerId         String?          @db.Uuid
+  code              String           @unique
+  name              String
+  category          ExerciseCategory
+  level             ExerciseLevel
+  equipment         String?
+  subgroup          String?
+  description       String?
+  instructions      String?
+  safetyNotes       String?
+  muscleExplanation String?
+  imageUrl          String?
+  videoUrl          String?
+  status            ExerciseStatus   @default(DRAFT)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+  trainer  Trainer? @relation(fields: [trainerId], references: [id], onDelete: Restrict)
+
+  muscles          ExerciseMuscle[]
+  workoutExercises WorkoutExercise[]
+
+  @@index([exerciseId])
+  @@index([trainerId])
+  @@index([category, level])
+  @@index([status])
+}
+
+model Muscle {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      String   @unique
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  exercises ExerciseMuscle[]
+}
+
+model ExerciseMuscle {
+  id                  String     @id @default(uuid()) @db.Uuid
+  exerciseVariationId String     @db.Uuid
+  muscleId            String     @db.Uuid
+  role                MuscleRole
+  explanation         String?
+
+  exerciseVariation ExerciseVariation @relation(fields: [exerciseVariationId], references: [id], onDelete: Restrict)
+  muscle            Muscle            @relation(fields: [muscleId], references: [id], onDelete: Restrict)
+
+  @@unique([exerciseVariationId, muscleId])
+  @@index([muscleId])
+}
+
+model Workout {
+  id                String        @id @default(uuid()) @db.Uuid
+  trainerId         String        @db.Uuid
+  studentId         String        @db.Uuid
+  organizationId    String        @db.Uuid
+  previousWorkoutId String?       @db.Uuid
+  version           Int           @default(1)
+  name              String
+  description       String?
+  status            WorkoutStatus @default(DRAFT)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  activatedAt       DateTime?
+  archivedAt        DateTime?
+
+  trainer         Trainer      @relation(fields: [trainerId], references: [id], onDelete: Restrict)
+  student         Student      @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  previousWorkout Workout?     @relation("WorkoutVersions", fields: [previousWorkoutId], references: [id], onDelete: Restrict)
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  nextVersions Workout[]         @relation("WorkoutVersions")
+  exercises    WorkoutExercise[]
+
+  @@index([trainerId])
+  @@index([studentId])
+  @@index([status])
+  @@index([previousWorkoutId])
+  @@index([organizationId])
+}
+
+model WorkoutExercise {
+  id                  String     @id @default(uuid()) @db.Uuid
+  workoutId           String     @db.Uuid
+  exerciseVariationId String     @db.Uuid
+  sets                Int
+  repetitions         String
+  weight              Decimal?   @db.Decimal(8, 2)
+  weightUnit          WeightUnit @default(KG)
+  restSeconds         Int?
+  order               Int
+  notes               String?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  workout           Workout           @relation(fields: [workoutId], references: [id], onDelete: Restrict)
+  exerciseVariation ExerciseVariation @relation(fields: [exerciseVariationId], references: [id], onDelete: Restrict)
+
+  exerciseNameSnapshot         String?
+  exerciseInstructionsSnapshot String?
+  exerciseSafetyNotesSnapshot  String?
+
+  @@unique([workoutId, order])
+  @@index([workoutId])
+  @@index([exerciseVariationId])
+}
+
+model PhysicalAssessment {
+  id             String @id @default(uuid()) @db.Uuid
+  studentId      String @db.Uuid
+  trainerId      String @db.Uuid
+  organizationId String @db.Uuid
+
+  status      AssessmentStatus @default(DRAFT)
+  assessedAt  DateTime         @default(now())
+  completedAt DateTime?
+
+  generalNotes      String?
+  professionalNotes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  student       Student                  @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  trainer       Trainer                  @relation(fields: [trainerId], references: [id], onDelete: Restrict)
+  organization  Organization             @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  anthropometry AssessmentAnthropometry?
+  skinfold      AssessmentSkinfold?
+  bioimpedance  AssessmentBioimpedance?
+
+  @@index([studentId, assessedAt])
+  @@index([trainerId])
+  @@index([organizationId])
+  @@index([status])
+}
+
+model AssessmentAnthropometry {
+  id           String @id @default(uuid()) @db.Uuid
+  assessmentId String @unique @db.Uuid
+
+  // Medidas gerais
+  weightKg Decimal? @db.Decimal(6, 2)
+  heightCm Decimal? @db.Decimal(5, 2)
+
+  // Circunferências centrais
+  neckCm     Decimal? @db.Decimal(5, 2)
+  shoulderCm Decimal? @db.Decimal(5, 2)
+  chestCm    Decimal? @db.Decimal(5, 2)
+  waistCm    Decimal? @db.Decimal(5, 2)
+  abdomenCm  Decimal? @db.Decimal(5, 2)
+  hipCm      Decimal? @db.Decimal(5, 2)
+
+  // Membros superiores
+  rightArmCm     Decimal? @db.Decimal(5, 2)
+  leftArmCm      Decimal? @db.Decimal(5, 2)
+  rightForearmCm Decimal? @db.Decimal(5, 2)
+  leftForearmCm  Decimal? @db.Decimal(5, 2)
+
+  // Membros inferiores
+  rightThighCm Decimal? @db.Decimal(5, 2)
+  leftThighCm  Decimal? @db.Decimal(5, 2)
+  rightCalfCm  Decimal? @db.Decimal(5, 2)
+  leftCalfCm   Decimal? @db.Decimal(5, 2)
+
+  // Informações complementares
+  measurementProtocol String?
+  equipmentNotes      String?
+  notes               String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assessment PhysicalAssessment @relation(fields: [assessmentId], references: [id], onDelete: Restrict)
+}
+
+model AssessmentSkinfold {
+  id           String @id @default(uuid()) @db.Uuid
+  assessmentId String @unique @db.Uuid
+
+  protocolCode    String?
+  protocolName    String?
+  protocolVersion String?
+
+  caliperBrand   String?
+  caliperModel   String?
+  equipmentNotes String?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assessment PhysicalAssessment @relation(fields: [assessmentId], references: [id], onDelete: Restrict)
+
+  measurements SkinfoldMeasurement[]
+}
+
+model SkinfoldMeasurement {
+  id         String @id @default(uuid()) @db.Uuid
+  skinfoldId String @db.Uuid
+
+  site    SkinfoldSite
+  side    BodySide     @default(RIGHT)
+  valueMm Decimal      @db.Decimal(5, 2)
+
+  measurementOrder Int     @default(1)
+  notes            String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  skinfold AssessmentSkinfold @relation(fields: [skinfoldId], references: [id], onDelete: Restrict)
+
+  @@unique([skinfoldId, site, side, measurementOrder])
+  @@index([skinfoldId])
+}
+
+model AssessmentBioimpedance {
+  id           String @id @default(uuid()) @db.Uuid
+  assessmentId String @unique @db.Uuid
+
+  // Identificação do equipamento
+  deviceBrand  String?
+  deviceModel  String?
+  deviceSerial String?
+  deviceNotes  String?
+
+  // Condições declaradas ou registradas
+  measurementTime  DateTime?
+  fastingHours     Decimal?  @db.Decimal(4, 1)
+  recentExercise   Boolean?
+  recentMeal       Boolean?
+  recentAlcohol    Boolean?
+  hydrationNotes   String?
+  preparationNotes String?
+
+  // Resultados estimados pelo equipamento
+  bodyFatPercent    Decimal? @db.Decimal(5, 2)
+  fatMassKg         Decimal? @db.Decimal(6, 2)
+  fatFreeMassKg     Decimal? @db.Decimal(6, 2)
+  skeletalMuscleKg  Decimal? @db.Decimal(6, 2)
+  totalBodyWaterKg  Decimal? @db.Decimal(6, 2)
+  totalBodyWaterPct Decimal? @db.Decimal(5, 2)
+  visceralFatIndex  Decimal? @db.Decimal(6, 2)
+
+  // Dados elétricos, quando disponíveis
+  resistanceOhms Decimal? @db.Decimal(8, 2)
+  reactanceOhms  Decimal? @db.Decimal(8, 2)
+  frequencyKhz   Decimal? @db.Decimal(8, 2)
+
+  // Metadados e observações
+  deviceAlgorithmVersion String?
+  reportReference        String?
+  notes                  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assessment PhysicalAssessment @relation(fields: [assessmentId], references: [id], onDelete: Restrict)
+}
