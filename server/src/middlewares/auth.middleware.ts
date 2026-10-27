@@ -1,28 +1,34 @@
-import type { RequestHandler } from "express";
+import type { RequestHandler } from 'express'
 
-import { AppError } from "../lib/app-error.js";
-import { verifyAccessToken } from "../lib/jwt.js";
+import { AppError } from '../lib/app-error.js'
+import { verifyAccessToken } from '../lib/jwt.js'
 
-export const requireAuth: RequestHandler = async (req, _res, next) => {
-    const authorizarion = req.headers.authorization
+export const requireAuth: RequestHandler = async (req, res, next) => {
+  const authorization = req.headers.authorization
 
-    if (!authorizarion?.startsWith('Bearer ')) {
-        return next(new AppError('Token de autenticação não inoformado. ', 401))
-    }
+  if (!authorization?.startsWith('Bearer ')) {
+    return next(
+      new AppError('Token de autenticação não informado.', 401),
+    )
+  }
 
-    const token = authorizarion.slice(7).trim()
+  const token = authorization.slice(7).trim()
 
-    if(!token) {
-        return next(new AppError('Token de autenticação não informado. ',401))
-    }
+  if (!token) {
+    return next(
+      new AppError('Token de autenticação não informado.', 401),
+    )
+  }
 
-    try {
-        const userId = await verifyAccessToken(token)
+  try {
+    const userId = await verifyAccessToken(token)
 
-        _res.locals.userId = userId
+    res.locals.userId = userId
 
-        return next()
-    } catch {
-        return next(new AppError('Token inválido ou expirado. ', 401))
-    }
+    return next()
+  } catch {
+    return next(
+      new AppError('Token inválido ou expirado.', 401),
+    )
+  }
 }

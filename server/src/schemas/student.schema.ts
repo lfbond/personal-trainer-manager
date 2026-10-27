@@ -30,3 +30,16 @@ export const createStudentSchema = z.object({
 })
 
 export type CreateStudentInput = z.infer<typeof createStudentSchema>
+
+export const updateStudentSchema = createStudentSchema
+  .partial()
+  .refine(
+    (data) => Object.keys(data).length > 0,
+    {
+      message: 'Informe pelo menos um campo para atualização.',
+    },
+  )
+
+export type UpdateStudentInput = z.infer<
+  typeof updateStudentSchema
+>
