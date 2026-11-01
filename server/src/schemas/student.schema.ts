@@ -43,3 +43,19 @@ export const updateStudentSchema = createStudentSchema
 export type UpdateStudentInput = z.infer<
   typeof updateStudentSchema
 >
+
+
+export const listStudentsQuerySchema = z.object({
+  search: z.string().trim().max(120).optional(),
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+}).strict()
+
+export type ListStudentsQueryInput =
+  z.infer<typeof listStudentsQuerySchema>
+
+export const updateStudentStatusSchema = z.object({
+  status: z.enum(['ACTIVE', 'INACTIVE']),
+}).strict()
+
+export type UpdateStudentStatusInput =
+  z.infer<typeof updateStudentStatusSchema>

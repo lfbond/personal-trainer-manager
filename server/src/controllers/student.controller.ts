@@ -1,13 +1,13 @@
 import type { RequestHandler } from 'express'
 import { z } from 'zod'
 
-import { listStudents, getStudentById, createStudent, updateStudent, archiveStudent} from '../services/student.service.js'
+import { listStudents, getStudentById, createStudent, updateStudent, archiveStudent, updateStudentStatus} from '../services/student.service.js'
 import { getTrainerContext } from '../services/trainer-context.service.js'
 import { AppError } from '../lib/app-error.js'
-import { createStudentSchema, updateStudentSchema } from '../schemas/student.schema.js'
+import { createStudentSchema, updateStudentSchema, listStudentsQuerySchema, updateStudentStatusSchema} from '../schemas/student.schema.js'
 
 export const listStudentsController: RequestHandler = async (
-  _req,
+  req,
   res,
 ) => {
   const userId = res.locals.userId as string | undefined
@@ -16,12 +16,15 @@ export const listStudentsController: RequestHandler = async (
     throw new AppError('Usuário não autenticado.', 401)
   }
 
+  const filters = listStudentsQuerySchema.parse(req.query)
+
   const { trainerId, organizationId } =
     await getTrainerContext(userId)
 
   const students = await listStudents({
     trainerId,
     organizationId,
+    filters,
   })
 
   res.status(200).json(students)
@@ -145,4 +148,36 @@ export const archiveStudentController: RequestHandler = async (
   })
 
   res.status(200).json(result)
+}
+
+
+export const updateStudentStatusController: RequestHandler = async (
+  req,
+  res,
+) => {
+  const userId = res.locals.userId as string | undefined
+
+  if (!userId) {
+    throw new AppError('Usuário não autenticado.', 401)
+  }
+
+  const studentIdValidation = z.uuid().safeParse(req.params.id)
+
+  if (!studentIdValidation.success) {
+    throw new AppError('ID do aluno inválido.', 400)
+  }
+
+  const data = updateStudentStatusSchema.parse(req.body)
+
+  const { trainerId, organizationId } =
+    await getTrainerContext(userId)
+
+  const student = await updateStudentStatus({
+    studentId: studentIdValidation.data,
+    trainerId,
+    organizationId,
+    status: data.status,
+  })
+
+  res.status(200).json(student)
 }

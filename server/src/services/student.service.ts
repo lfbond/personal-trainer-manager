@@ -1,18 +1,20 @@
 
 import { prisma } from '../lib/prisma.js'
 
-import type { CreateStudentInput,  UpdateStudentInput } from '../schemas/student.schema.js'
+import type { CreateStudentInput,  UpdateStudentInput, ListStudentsQueryInput } from '../schemas/student.schema.js'
 
 import { AppError } from '../lib/app-error.js'
 
 interface ListStudentsParams {
   trainerId: string
   organizationId: string
+  filters?: ListStudentsQueryInput
 }
 
 export async function listStudents({
   trainerId,
   organizationId,
+  filters,
 }: ListStudentsParams) {
     
     const hasAccess = await verifyTrainerAccess({
@@ -32,18 +34,25 @@ export async function listStudents({
       trainerId,
       organizationId,
       archivedAt: null,
-    },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      phone: true,
-      birthDate: true,
-      status: true,
-      createdAt: true,
-    },
-    orderBy: {
-      name: 'asc',
+      ...(filters?.status && {
+        status: filters.status,
+      }),
+      ...(filters?.search && {
+        OR: [
+          {
+            name: {
+              contains: filters.search,
+              mode: 'insensitive',
+            },
+          },
+          {
+            email: {
+              contains: filters.search,
+              mode: 'insensitive',
+            },
+          },
+        ],
+      }),
     },
   })
 
@@ -284,4 +293,53 @@ export async function archiveStudent({
   return {
     message: 'Aluno arquivado com sucesso.',
   }
+}
+
+
+interface UpdateStudentStatusParams {
+  studentId: string
+  trainerId: string
+  organizationId: string
+  status: 'ACTIVE' | 'INACTIVE'
+}
+
+export async function updateStudentStatus({
+  studentId,
+  trainerId,
+  organizationId,
+  status,
+}: UpdateStudentStatusParams) {
+  const hasAccess = await verifyTrainerAccess({
+    trainerId,
+    organizationId,
+  })
+
+  if (!hasAccess) {
+    throw new AppError(
+      'Treinador sem permissão para alterar o status deste aluno.',
+      403,
+    )
+  }
+
+  const result = await prisma.student.updateMany({
+    where: {
+      id: studentId,
+      trainerId,
+      organizationId,
+      archivedAt: null,
+    },
+    data: {
+      status,
+    },
+  })
+
+  if (result.count === 0) {
+    throw new AppError('Aluno não encontrado.', 404)
+  }
+
+  return getStudentById({
+    studentId,
+    trainerId,
+    organizationId,
+  })
 }
