@@ -35,46 +35,84 @@ export function Login() {
     }
   }
 
+  const inputClassName = [
+    'w-full rounded-lg border border-border-default',
+    'bg-page px-4 py-3 text-text-primary',
+    'outline-none transition-colors duration-200',
+    'focus:border-primary focus:ring-2 focus:ring-primary/20',
+    'disabled:cursor-not-allowed disabled:opacity-60',
+  ].join(' ')
+
   return (
-    <main style={{
-      minHeight: '100vh',
-      display: 'grid',
-      placeItems: 'center',
-      padding: '1rem',
-    }}>
-      <form onSubmit={handleSubmit} style={{
-        width: '100%',
-        maxWidth: 400,
-        display: 'grid',
-        gap: '1rem',
-        padding: '2rem',
-        background: '#fff',
-        borderRadius: 12,
-      }}>
-        <h1>Personal Trainer Manager</h1>
-        <p>Entre com sua conta de treinador.</p>
+    <main className="grid min-h-screen place-items-center bg-page px-4 py-8">
+      <form
+        onSubmit={handleSubmit}
+        className="grid w-full max-w-[400px] gap-5 rounded-xl border border-border-default bg-surface p-6 shadow-lg sm:p-8"
+      >
+        <div className="mb-2">
+          <h1 className="text-2xl leading-tight font-bold text-text-primary">
+            Personal Trainer Manager
+          </h1>
 
-        <label htmlFor="email">E-mail</label>
-        <input
-          id="email"
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          required
-        />
+          <p className="mt-3 text-sm leading-relaxed text-text-secondary">
+            Entre com sua conta de treinador.
+          </p>
+        </div>
 
-        <label htmlFor="password">Senha</label>
-        <input
-          id="password"
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          required
-        />
+        <div className="grid gap-2">
+          <label
+            htmlFor="email"
+            className="text-sm font-medium text-text-primary"
+          >
+            E-mail
+          </label>
 
-        {error && <p role="alert" style={{ color: '#dc2626' }}>{error}</p>}
+          <input
+            id="email"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            className={inputClassName}
+            placeholder="seuemail@exemplo.com"
+            required
+          />
+        </div>
 
-        <button type="submit" disabled={loading}>
+        <div className="grid gap-2">
+          <label
+            htmlFor="password"
+            className="text-sm font-medium text-text-primary"
+          >
+            Senha
+          </label>
+
+          <input
+            id="password"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            className={inputClassName}
+            placeholder="Digite sua senha"
+            required
+          />
+        </div>
+
+        {error && (
+          <p
+            role="alert"
+            className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm text-danger"
+          >
+            {error}
+          </p>
+        )}
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full rounded-lg bg-primary px-4 py-3 font-semibold text-white transition-colors duration-200 hover:bg-primary-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-60"
+        >
           {loading ? 'Entrando...' : 'Entrar'}
         </button>
       </form>
