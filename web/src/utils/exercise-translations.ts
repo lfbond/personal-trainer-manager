@@ -45,6 +45,15 @@ const exerciseNames: Record<string, string> = {
   'Wood Chop': 'Rotação diagonal de tronco',
 }
 
+const variationNames: Record<string, string> = {
+  'Floor Press': 'Supino no chão',
+  'Floor Press unilateral': 'Supino no chão unilateral',
+  'Bottom-up unilateral': 'Unilateral com kettlebell invertido',
+  'Goblet': 'Com peso junto ao peito (Goblet)',
+  'High bar': 'Barra alta',
+  'Low bar': 'Barra baixa',
+}
+
 export function getExerciseDisplayName(name: string): string {
   const originalName = name.trim()
 
@@ -58,13 +67,20 @@ export function getExerciseDisplayName(name: string): string {
     const [baseName, ...variationParts] = originalName.split(separator)
 
     const normalizedBaseName = baseName.trim()
-    const translatedBase = exerciseNames[normalizedBaseName]
+    const translatedBase =
+      exerciseNames[normalizedBaseName] ?? normalizedBaseName
 
-    if (translatedBase) {
-      const variation = variationParts.join(separator).trim()
+    const originalVariation = variationParts.join(separator).trim()
 
-      return `${translatedBase} — ${variation} (${normalizedBaseName})`
-    }
+    const translatedVariation =
+      variationNames[originalVariation] ?? originalVariation
+
+    const displayBase =
+      exerciseNames[normalizedBaseName]
+        ? `${translatedBase} (${normalizedBaseName})`
+        : translatedBase
+
+    return `${displayBase} — ${translatedVariation}`
   }
 
   const translation = exerciseNames[originalName]
