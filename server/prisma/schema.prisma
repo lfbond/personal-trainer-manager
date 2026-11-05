@@ -195,21 +195,28 @@ model OrganizationMember {
   @@index([userId])
 }
 
+
 model User {
-  id           String   @id @default(uuid()) @db.Uuid
-  name         String
-  email        String   @unique
-  passwordHash String?
-  role         UserRole
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String
+  email           String   @unique
+  passwordHash    String?
+  role            UserRole
+  isActive        Boolean  @default(true)
+
+  // Permissão administrativa global da plataforma.
+  // Não depende do papel do usuário na organização.
+  isPlatformAdmin Boolean  @default(false)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   organizationMemberships OrganizationMember[]
 
   trainer  Trainer?
   students Student[]
 }
+
 
 model Trainer {
   id        String   @id @default(uuid()) @db.Uuid
@@ -451,6 +458,7 @@ model ExerciseVariation {
   imageUrl          String?
   videoUrl          String?
   status            ExerciseStatus   @default(DRAFT)
+  needsEditorialReview Boolean      @default(false)
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
 
