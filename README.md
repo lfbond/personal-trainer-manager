@@ -1,5 +1,6 @@
 # Personal Trainer Manager
 
+<<<<<<< HEAD
 Sistema Full Stack para gerenciamento de alunos, exercícios e fichas de treino desenvolvido como projeto de portfólio e evolução técnica.
 
 ## 🚧 Status
@@ -140,10 +141,55 @@ Tecnologias planejadas:
 
 Tecnologias planejadas:
 
+=======
+Sistema Full Stack para gestão de alunos, exercícios e fichas de treino.
+
+## Status
+
+🚧 Em desenvolvimento — MVP Web v1.0
+
+## Arquitetura planejada
+
+React + TypeScript
+        ↓
+REST API
+        ↓
+Node.js + TypeScript + Express
+        ↓
+Prisma
+        ↓
+PostgreSQL
+
+Futuramente:
+
+Flutter + Dart
+        ↓
+mesma REST API
+
+## Escopo do MVP
+
+- Gestão de alunos
+- Perfil de saúde e restrições relevantes ao treinamento
+- Catálogo de exercícios
+- Criação de fichas de treino
+- Prescrição de séries, repetições, carga e descanso
+- Associação de treinos aos alunos
+- Dashboard
+- Interface responsiva
+
+## Tecnologias
+
+### Frontend
+- React
+- TypeScript
+
+### Backend
+>>>>>>> main
 - Node.js
 - TypeScript
 - Express
 - Zod
+<<<<<<< HEAD
 - Prisma ORM
 
 A organização inicial será baseada em:
@@ -225,3 +271,17 @@ A documentação será atualizada conforme a evolução real do projeto.
 **Luís Felipe Bond**
 
 Desenvolvedor Full Stack JavaScript/TypeScript.
+=======
+
+### Database
+- PostgreSQL
+- Prisma ORM
+
+### Mobile — Futuro
+- Flutter
+- Dart
+
+## Roadmap
+
+Acompanhe o desenvolvimento através das Issues e do milestone `MVP Web v1.0`.
+>>>>>>> main
