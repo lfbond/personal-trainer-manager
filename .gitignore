@@ -26,3 +26,17 @@ Thumbs.db
 
 # Coverage
 coverage/
+
+server/backups/
+
+# ============================================
+# BACKUPS DO BANCO DE DADOS - POSTGRESQL
+# ============================================
+
+# Ignorar backups em qualquer pasta
+*.dump
+*.backup
+*.sql.gz
+
+# Ignorar especificamente o backup atual
+/server/personal_trainer_manager_backup.dump

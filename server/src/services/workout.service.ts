@@ -1,0 +1,764 @@
+
+import { prisma } from '../lib/prisma.js'
+import { AppError } from '../lib/app-error.js'
+import { verifyTrainerAccess } from './student.service.js'
+
+import type {
+  CreateWorkoutInput,
+  UpdateWorkoutInput,
+  AddWorkoutExerciseInput,
+  UpdateWorkoutExerciseInput,
+} from '../schemas/workout.schema.js'
+
+interface CreateWorkoutParams {
+  data: CreateWorkoutInput
+  trainerId: string
+  organizationId: string
+}
+
+interface ListWorkoutsParams {
+  trainerId: string
+  organizationId: string
+}
+
+interface WorkoutAccessParams {
+  id: string
+  trainerId: string
+  organizationId: string
+}
+
+interface WorkoutExerciseAccessParams extends WorkoutAccessParams {
+  exerciseId: string
+}
+
+export async function createWorkout({
+  data,
+  trainerId,
+  organizationId,
+}: CreateWorkoutParams) {
+  const hasAccess = await verifyTrainerAccess({
+    trainerId,
+    organizationId,
+  })
+
+  if (!hasAccess) {
+    throw new AppError(
+      'Treinador sem permissão para cadastrar treinos nesta organização.',
+      403,
+    )
+  }
+
+  const student = await prisma.student.findFirst({
+    where: {
+      id: data.studentId,
+      trainerId,
+      organizationId,
+      archivedAt: null,
+    },
+    select: { id: true },
+  })
+
+  if (!student) {
+    throw new AppError(
+      'Aluno não encontrado ou não pertence a este treinador.',
+      404,
+    )
+  }
+
+  return prisma.workout.create({
+    data: {
+      name: data.name,
+      description: data.description ?? null,
+      trainer: { connect: { id: trainerId } },
+      student: { connect: { id: student.id } },
+      organization: { connect: { id: organizationId } },
+      status: 'DRAFT',
+      version: 1,
+    },
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      status: true,
+      version: true,
+      trainerId: true,
+      studentId: true,
+      organizationId: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  })
+}
+
+export async function listWorkouts({
+  trainerId,
+  organizationId,
+}: ListWorkoutsParams) {
+  const hasAccess = await verifyTrainerAccess({
+    trainerId,
+    organizationId,
+  })
+
+  if (!hasAccess) {
+    throw new AppError(
+      'Treinador sem permissão para consultar fichas nesta organização.',
+      403,
+    )
+  }
+
+  return prisma.workout.findMany({
+    where: {
+      trainerId,
+      organizationId,
+      archivedAt: null,
+    },
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      status: true,
+      version: true,
+      studentId: true,
+      createdAt: true,
+      updatedAt: true,
+      student: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      exercises: {
+        select: {
+          id: true,
+          exerciseVariationId: true,
+          sets: true,
+          repetitions: true,
+          weight: true,
+          weightUnit: true,
+          restSeconds: true,
+          order: true,
+          notes: true,
+        },
+        orderBy: { order: 'asc' },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+}
+
+async function ensureWorkoutAccess({
+  id,
+  trainerId,
+  organizationId,
+}: WorkoutAccessParams) {
+  const hasAccess = await verifyTrainerAccess({
+    trainerId,
+    organizationId,
+  })
+
+  if (!hasAccess) {
+    throw new AppError(
+      'Treinador sem permissão nesta organização.',
+      403,
+    )
+  }
+
+  const workout = await prisma.workout.findFirst({
+    where: {
+      id,
+      trainerId,
+      organizationId,
+      archivedAt: null,
+    },
+  })
+
+  if (!workout) {
+    throw new AppError('Ficha não encontrada.', 404)
+  }
+
+  return workout
+}
+
+export async function getWorkoutById(
+  params: WorkoutAccessParams,
+) {
+  await ensureWorkoutAccess(params)
+
+  return prisma.workout.findFirst({
+    where: {
+      id: params.id,
+      trainerId: params.trainerId,
+      organizationId: params.organizationId,
+      archivedAt: null,
+    },
+    include: {
+      student: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      exercises: {
+        include: {
+          exerciseVariation: true,
+        },
+        orderBy: { order: 'asc' },
+      },
+    },
+  })
+}
+
+export async function updateWorkout({
+  id,
+  trainerId,
+  organizationId,
+  data,
+}: WorkoutAccessParams & { data: UpdateWorkoutInput }) {
+  const hasAccess = await verifyTrainerAccess({
+    trainerId,
+    organizationId,
+  })
+
+  if (!hasAccess) {
+    throw new AppError('Acesso negado.', 403)
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM "Workout"
+      WHERE id = ${id}::uuid
+        AND "trainerId" = ${trainerId}::uuid
+        AND "organizationId" = ${organizationId}::uuid
+        AND "archivedAt" IS NULL
+        AND status = 'DRAFT'
+      FOR UPDATE
+    `
+
+    if (!locked.length) {
+      throw new AppError(
+        'Somente fichas em rascunho podem ser editadas.',
+        409,
+      )
+    }
+
+    return tx.workout.update({
+      where: { id },
+      data,
+    })
+  })
+}
+
+export async function archiveWorkout(
+  params: WorkoutAccessParams,
+) {
+  const workout = await ensureWorkoutAccess(params)
+
+  return prisma.workout.update({
+    where: { id: workout.id },
+    data: {
+      status: 'ARCHIVED',
+      archivedAt: new Date(),
+    },
+  })
+}
+
+export async function addWorkoutExercise({
+  id,
+  trainerId,
+  organizationId,
+  data,
+}: WorkoutAccessParams & {
+  data: AddWorkoutExerciseInput
+}) {
+  return prisma.$transaction(async (tx) => {
+    const hasAccess = await verifyTrainerAccess({
+      trainerId,
+      organizationId,
+    })
+
+    if (!hasAccess) {
+      throw new AppError('Acesso negado.', 403)
+    }
+
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM "Workout"
+      WHERE id = ${id}::uuid
+        AND "trainerId" = ${trainerId}::uuid
+        AND "organizationId" = ${organizationId}::uuid
+        AND "archivedAt" IS NULL
+        AND status = 'DRAFT'
+      FOR UPDATE
+    `
+
+    if (!locked.length) {
+      throw new AppError(
+        'Ficha não encontrada ou não está em rascunho.',
+        409,
+      )
+    }
+
+    const variation = await tx.exerciseVariation.findFirst({
+      where: {
+        id: data.exerciseVariationId,
+        OR: [
+          { trainerId: null },
+          { trainerId },
+        ],
+      },
+      select: {
+        id: true,
+        name: true,
+        instructions: true,
+        safetyNotes: true,
+      },
+    })
+
+    if (!variation) {
+      throw new AppError(
+        'Variação não encontrada ou indisponível.',
+        404,
+      )
+    }
+
+    const lastExercise = await tx.workoutExercise.findFirst({
+      where: { workoutId: id },
+      orderBy: { order: 'desc' },
+      select: { order: true },
+    })
+
+    return tx.workoutExercise.create({
+      data: {
+        workoutId: id,
+        exerciseVariationId: variation.id,
+        sets: data.sets,
+        repetitions: data.repetitions,
+        weight: data.weight ?? null,
+        weightUnit: data.weightUnit ?? 'KG',
+        restSeconds: data.restSeconds ?? null,
+        notes: data.notes ?? null,
+        order: (lastExercise?.order ?? 0) + 1,
+        exerciseNameSnapshot: variation.name,
+        exerciseInstructionsSnapshot: variation.instructions,
+        exerciseSafetyNotesSnapshot: variation.safetyNotes,
+      },
+    })
+  })
+}
+
+export async function updateWorkoutExercise({
+  id,
+  exerciseId,
+  trainerId,
+  organizationId,
+  data,
+}: WorkoutExerciseAccessParams & {
+  data: UpdateWorkoutExerciseInput
+}) {
+  const hasAccess = await verifyTrainerAccess({
+    trainerId,
+    organizationId,
+  })
+
+  if (!hasAccess) {
+    throw new AppError('Acesso negado.', 403)
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM "Workout"
+      WHERE id = ${id}::uuid
+        AND "trainerId" = ${trainerId}::uuid
+        AND "organizationId" = ${organizationId}::uuid
+        AND "archivedAt" IS NULL
+        AND status = 'DRAFT'
+      FOR UPDATE
+    `
+
+    if (!locked.length) {
+      throw new AppError(
+        'Ficha não encontrada ou não está em rascunho.',
+        409,
+      )
+    }
+
+    const {
+      exerciseVariationId,
+      ...prescriptionData
+    } = data
+
+    const updateData: typeof prescriptionData & {
+      exerciseVariationId?: string
+      exerciseNameSnapshot?: string
+      exerciseInstructionsSnapshot?: string | null
+      exerciseSafetyNotesSnapshot?: string | null
+    } = { ...prescriptionData }
+
+    if (exerciseVariationId !== undefined) {
+      const variation = await tx.exerciseVariation.findFirst({
+        where: {
+          id: exerciseVariationId,
+          OR: [
+            { trainerId: null },
+            { trainerId },
+          ],
+        },
+        select: {
+          id: true,
+          name: true,
+          instructions: true,
+          safetyNotes: true,
+        },
+      })
+
+      if (!variation) {
+        throw new AppError(
+          'Variação não encontrada ou indisponível.',
+          404,
+        )
+      }
+
+      updateData.exerciseVariationId = variation.id
+      updateData.exerciseNameSnapshot = variation.name
+      updateData.exerciseInstructionsSnapshot =
+        variation.instructions
+      updateData.exerciseSafetyNotesSnapshot =
+        variation.safetyNotes
+    }
+
+    const result = await tx.workoutExercise.updateMany({
+      where: {
+        id: exerciseId,
+        workoutId: id,
+      },
+      data: updateData,
+    })
+
+    if (!result.count) {
+      throw new AppError(
+        'Exercício não encontrado na ficha.',
+        404,
+      )
+    }
+
+    return tx.workoutExercise.findUniqueOrThrow({
+      where: { id: exerciseId },
+    })
+  })
+}
+
+export async function removeWorkoutExercise({
+  id,
+  exerciseId,
+  trainerId,
+  organizationId,
+}: WorkoutExerciseAccessParams) {
+  const hasAccess = await verifyTrainerAccess({
+    trainerId,
+    organizationId,
+  })
+
+  if (!hasAccess) {
+    throw new AppError('Acesso negado.', 403)
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM "Workout"
+      WHERE id = ${id}::uuid
+        AND "trainerId" = ${trainerId}::uuid
+        AND "organizationId" = ${organizationId}::uuid
+        AND "archivedAt" IS NULL
+        AND status = 'DRAFT'
+      FOR UPDATE
+    `
+
+    if (!locked.length) {
+      throw new AppError(
+        'Ficha não encontrada ou não está em rascunho.',
+        409,
+      )
+    }
+
+    const result = await tx.workoutExercise.deleteMany({
+      where: {
+        id: exerciseId,
+        workoutId: id,
+      },
+    })
+
+    if (!result.count) {
+      throw new AppError(
+        'Exercício não encontrado na ficha.',
+        404,
+      )
+    }
+  })
+}
+
+export async function activateWorkout(
+  params: WorkoutAccessParams,
+) {
+  const hasAccess = await verifyTrainerAccess({
+    trainerId: params.trainerId,
+    organizationId: params.organizationId,
+  })
+
+  if (!hasAccess) {
+    throw new AppError('Acesso negado.', 403)
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const target = await tx.workout.findFirst({
+      where: {
+        id: params.id,
+        trainerId: params.trainerId,
+        organizationId: params.organizationId,
+        archivedAt: null,
+      },
+      select: { studentId: true },
+    })
+
+    if (!target) {
+      throw new AppError('Ficha não encontrada.', 404)
+    }
+
+    const studentLock = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM "Student"
+      WHERE id = ${target.studentId}::uuid
+        AND "trainerId" = ${params.trainerId}::uuid
+        AND "organizationId" = ${params.organizationId}::uuid
+        AND "archivedAt" IS NULL
+      FOR UPDATE
+    `
+
+    if (!studentLock.length) {
+      throw new AppError('Aluno não encontrado.', 404)
+    }
+
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM "Workout"
+      WHERE id = ${params.id}::uuid
+        AND "trainerId" = ${params.trainerId}::uuid
+        AND "organizationId" = ${params.organizationId}::uuid
+        AND "studentId" = ${target.studentId}::uuid
+        AND "archivedAt" IS NULL
+        AND status = 'DRAFT'
+      FOR UPDATE
+    `
+
+    if (!locked.length) {
+      throw new AppError(
+        'Ficha não encontrada ou não está em rascunho.',
+        409,
+      )
+    }
+
+    const exerciseCount = await tx.workoutExercise.count({
+      where: { workoutId: params.id },
+    })
+
+    if (!exerciseCount) {
+      throw new AppError(
+        'Adicione pelo menos um exercício antes de ativar.',
+        409,
+      )
+    }
+
+    const now = new Date()
+
+    await tx.workout.updateMany({
+      where: {
+        studentId: target.studentId,
+        trainerId: params.trainerId,
+        organizationId: params.organizationId,
+        status: 'ACTIVE',
+        archivedAt: null,
+        id: { not: params.id },
+      },
+      data: {
+        status: 'ARCHIVED',
+        archivedAt: now,
+      },
+    })
+
+    return tx.workout.update({
+      where: { id: params.id },
+      data: {
+        status: 'ACTIVE',
+        activatedAt: now,
+      },
+    })
+  })
+}
+
+export async function createWorkoutVersion(
+  params: WorkoutAccessParams,
+) {
+  const hasAccess = await verifyTrainerAccess({
+    trainerId: params.trainerId,
+    organizationId: params.organizationId,
+  })
+
+  if (!hasAccess) {
+    throw new AppError('Acesso negado.', 403)
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM "Workout"
+      WHERE id = ${params.id}::uuid
+        AND "trainerId" = ${params.trainerId}::uuid
+        AND "organizationId" = ${params.organizationId}::uuid
+        AND "archivedAt" IS NULL
+        AND status = 'ACTIVE'
+      FOR UPDATE
+    `
+
+    if (!locked.length) {
+      throw new AppError(
+        'Somente fichas ativas podem gerar uma versão.',
+        409,
+      )
+    }
+
+    const original = await tx.workout.findUniqueOrThrow({
+      where: { id: params.id },
+    })
+
+    const existingNextVersion = await tx.workout.findFirst({
+      where: {
+        previousWorkoutId: original.id,
+      },
+      select: { id: true },
+    })
+
+    if (existingNextVersion) {
+      throw new AppError(
+        'Esta ficha já possui uma versão posterior.',
+        409,
+      )
+    }
+
+    const exercises = await tx.workoutExercise.findMany({
+      where: { workoutId: original.id },
+      orderBy: { order: 'asc' },
+    })
+
+    const newWorkout = await tx.workout.create({
+      data: {
+        trainerId: original.trainerId,
+        studentId: original.studentId,
+        organizationId: original.organizationId,
+        previousWorkoutId: original.id,
+        version: original.version + 1,
+        name: original.name,
+        description: original.description,
+        status: 'DRAFT',
+      },
+    })
+
+    if (exercises.length) {
+      await tx.workoutExercise.createMany({
+        data: exercises.map((exercise) => ({
+          workoutId: newWorkout.id,
+          exerciseVariationId: exercise.exerciseVariationId,
+          sets: exercise.sets,
+          repetitions: exercise.repetitions,
+          weight: exercise.weight,
+          weightUnit: exercise.weightUnit,
+          restSeconds: exercise.restSeconds,
+          order: exercise.order,
+          notes: exercise.notes,
+          exerciseNameSnapshot:
+            exercise.exerciseNameSnapshot,
+          exerciseInstructionsSnapshot:
+            exercise.exerciseInstructionsSnapshot,
+          exerciseSafetyNotesSnapshot:
+            exercise.exerciseSafetyNotesSnapshot,
+        })),
+      })
+    }
+
+    return tx.workout.findUnique({
+      where: { id: newWorkout.id },
+      include: {
+        exercises: {
+          orderBy: { order: 'asc' },
+        },
+      },
+    })
+  })
+}
+
+export async function listWorkoutVersions(
+  params: WorkoutAccessParams,
+) {
+  const hasAccess = await verifyTrainerAccess({
+    trainerId: params.trainerId,
+    organizationId: params.organizationId,
+  })
+
+  if (!hasAccess) {
+    throw new AppError('Acesso negado.', 403)
+  }
+
+  const workout = await prisma.workout.findFirst({
+    where: {
+      id: params.id,
+      trainerId: params.trainerId,
+      organizationId: params.organizationId,
+    },
+  })
+
+  if (!workout) {
+    throw new AppError('Ficha não encontrada.', 404)
+  }
+
+  const versions = [workout]
+  const visited = new Set([workout.id])
+
+  let current = workout
+
+  while (current.previousWorkoutId) {
+    const previous = await prisma.workout.findFirst({
+      where: {
+        id: current.previousWorkoutId,
+        trainerId: params.trainerId,
+        organizationId: params.organizationId,
+      },
+    })
+
+    if (!previous || visited.has(previous.id)) break
+
+    versions.unshift(previous)
+    visited.add(previous.id)
+    current = previous
+  }
+
+  let frontier = [...versions]
+
+  while (frontier.length > 0) {
+    const children = await prisma.workout.findMany({
+      where: {
+        previousWorkoutId: {
+          in: frontier.map((item) => item.id),
+        },
+        trainerId: params.trainerId,
+        organizationId: params.organizationId,
+      },
+    })
+
+    frontier = children.filter(
+      (item) => !visited.has(item.id),
+    )
+
+    for (const item of frontier) {
+      versions.push(item)
+      visited.add(item.id)
+    }
+  }
+
+  return versions.sort(
+    (a, b) => a.version - b.version,
+  )
+}

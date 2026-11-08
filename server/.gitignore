@@ -13,3 +13,5 @@ node_modules/
 
 # Temporary migration preview
 /migration_preview.sql
+
+.dump

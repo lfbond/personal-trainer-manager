@@ -1,3 +1,4 @@
+
 import { prisma } from '../lib/prisma.js'
 import { AppError } from '../lib/app-error.js'
 import { verifyPassword } from '../lib/password.js'
@@ -19,6 +20,7 @@ export async function login({ email, password }: LoginInput) {
       email: true,
       passwordHash: true,
       isActive: true,
+      isPlatformAdmin: true,
     },
   })
 
@@ -45,6 +47,7 @@ export async function login({ email, password }: LoginInput) {
       id: user.id,
       name: user.name,
       email: user.email,
+      isPlatformAdmin: user.isPlatformAdmin,
     },
   }
 }

@@ -4,6 +4,9 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 
+/* Tailwind v4: tema escuro controlado pela classe .dark */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ========================================
    DESIGN SYSTEM — PERSONAL TRAINER MANAGER
    ======================================== */
@@ -36,8 +39,8 @@
 
   --app-surface: #ffffff;
   --app-page: #f4f4f5;
-  --app-sidebar: #18181b;
-  --app-sidebar-hover: #27272a;
+  --app-sidebar: #ffffff;
+  --app-sidebar-hover: #f4f4f5;
 
   --app-text-primary: #18181b;
   --app-text-secondary: #71717a;

@@ -5,6 +5,7 @@ export interface AuthUser {
   id: string
   name: string
   email: string
+  isPlatformAdmin: boolean
 }
 
 export interface AuthContextData {

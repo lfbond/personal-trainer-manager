@@ -105,6 +105,12 @@ enum ExerciseStatus {
   INACTIVE
 }
 
+enum ExerciseImageStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum WorkoutStatus {
   DRAFT
   ACTIVE
@@ -202,8 +208,13 @@ model User {
   passwordHash String?
   role         UserRole
   isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+
+  // Permissão administrativa global da plataforma.
+  // Não depende do papel do usuário na organização.
+  isPlatformAdmin Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   organizationMemberships OrganizationMember[]
 
@@ -435,24 +446,28 @@ model Exercise {
 }
 
 model ExerciseVariation {
-  id                String           @id @default(uuid()) @db.Uuid
-  exerciseId        String           @db.Uuid
-  trainerId         String?          @db.Uuid
-  code              String           @unique
-  name              String
-  category          ExerciseCategory
-  level             ExerciseLevel
-  equipment         String?
-  subgroup          String?
-  description       String?
-  instructions      String?
-  safetyNotes       String?
-  muscleExplanation String?
-  imageUrl          String?
-  videoUrl          String?
-  status            ExerciseStatus   @default(DRAFT)
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  id                   String              @id @default(uuid()) @db.Uuid
+  exerciseId           String              @db.Uuid
+  trainerId            String?             @db.Uuid
+  code                 String              @unique
+  name                 String
+  category             ExerciseCategory
+  level                ExerciseLevel
+  equipment            String?
+  subgroup             String?
+  description          String?
+  instructions         String?
+  safetyNotes          String?
+  muscleExplanation    String?
+  imageUrl             String?
+  imageReviewStatus    ExerciseImageStatus @default(PENDING)
+  imageReviewNotes     String?
+  imageReviewedAt      DateTime?
+  videoUrl             String?
+  status               ExerciseStatus      @default(DRAFT)
+  needsEditorialReview Boolean             @default(false)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
 
   exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
   trainer  Trainer? @relation(fields: [trainerId], references: [id], onDelete: Restrict)
@@ -464,6 +479,7 @@ model ExerciseVariation {
   @@index([trainerId])
   @@index([category, level])
   @@index([status])
+  @@index([imageReviewStatus])
 }
 
 model Muscle {
