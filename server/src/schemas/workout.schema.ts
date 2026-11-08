@@ -1,3 +1,4 @@
+
 import { z } from 'zod'
 
 export const createWorkoutSchema = z.object({
@@ -19,7 +20,6 @@ export const createWorkoutSchema = z.object({
 
 export type CreateWorkoutInput = z.infer<typeof createWorkoutSchema>
 
-
 export const workoutParamsSchema = z.object({
   id: z.uuid(),
 })
@@ -35,7 +35,6 @@ export const updateWorkoutSchema = z.object({
 export type UpdateWorkoutInput = z.infer<
   typeof updateWorkoutSchema
 >
-
 
 export const workoutExerciseParamsSchema = z.object({
   id: z.uuid(),
@@ -56,6 +55,9 @@ export const addWorkoutExerciseSchema = z.object({
 }).strict()
 
 export const updateWorkoutExerciseSchema = z.object({
+  // Permite substituir a variação sem excluir a prescrição.
+  exerciseVariationId: z.uuid().optional(),
+
   sets: z.number().int().min(1).max(20).optional(),
   repetitions: z.string().trim().min(1).max(50).optional(),
   weight: z.number().nonnegative().max(999999.99)

@@ -29,6 +29,18 @@ type CatalogRow = {
   imagem_url: string
 }
 
+type BaseData = {
+  name: string
+  muscleGroup: MuscleGroup
+}
+
+type Change = {
+  code: string
+  field: string
+  previous: string | null
+  next: string | null
+}
+
 const MUSCLE_GROUPS: Record<string, MuscleGroup> = {
   Peitoral: 'CHEST',
   Costas: 'BACK',
@@ -49,7 +61,7 @@ const CATEGORIES: Record<string, ExerciseCategory> = {
 
 const LEVELS: Record<string, ExerciseLevel> = {
   Iniciante: 'BEGINNER',
-  'Intermediário': 'INTERMEDIATE',
+  Intermediário: 'INTERMEDIATE',
   'Avançado': 'ADVANCED',
 }
 
@@ -71,11 +83,6 @@ const REQUIRED_COLUMNS: (keyof CatalogRow)[] = [
   'imagem_url',
 ]
 
-const EDITORIAL_STATUSES = new Set([
-  'CANDIDATO_REVISAO',
-  'REVISAR_GRUPO_PRIMARIO',
-])
-
 const REQUIRED_VALUES: (keyof CatalogRow)[] = [
   'codigo',
   'codigo_base',
@@ -87,18 +94,61 @@ const REQUIRED_VALUES: (keyof CatalogRow)[] = [
   'status',
 ]
 
+const EDITORIAL_STATUSES = new Set([
+  'CANDIDATO_REVISAO',
+  'REVISAR_GRUPO_PRIMARIO',
+])
+
 function optionalText(value: string | undefined) {
   return value?.trim() || null
+}
+
+function normalizeName(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase('pt-BR')
+}
+
+function muscleExplanation(row: CatalogRow) {
+  return (
+    [
+      row.musculos_principais &&
+        `Principais: ${row.musculos_principais}`,
+      row.musculos_auxiliares &&
+        `Auxiliares: ${row.musculos_auxiliares}`,
+    ]
+      .filter(Boolean)
+      .join(' | ') || null
+  )
+}
+
+function validateImageUrl(value: string, line: number) {
+  if (!value.trim()) return
+
+  try {
+    const url = new URL(value)
+
+    if (!['https:', 'http:'].includes(url.protocol)) {
+      throw new Error('Protocolo inválido')
+    }
+
+    if (url.username || url.password) {
+      throw new Error('URL com credenciais')
+    }
+  } catch {
+    throw new Error(
+      `Linha ${line}: imagem_url deve ser uma URL HTTP(S) válida.`,
+    )
+  }
 }
 
 function validateRows(rows: CatalogRow[]) {
   const errors: string[] = []
   const codes = new Set<string>()
-
-  const bases = new Map<
-    string,
-    { name: string; muscleGroup: MuscleGroup }
-  >()
+  const bases = new Map<string, BaseData>()
 
   rows.forEach((row, index) => {
     const line = index + 2
@@ -143,9 +193,23 @@ function validateRows(rows: CatalogRow[]) {
       )
     }
 
-    if (/pegada reversa/i.test(row.nome)) {
+    // Mantém a exclusão específica acordada para o supino.
+    if (
+      /supino/i.test(row.nome) &&
+      /pegada reversa/i.test(row.nome)
+    ) {
       errors.push(
         `Linha ${line}: exercício excluído ${row.nome}`,
+      )
+    }
+
+    try {
+      validateImageUrl(row.imagem_url, line)
+    } catch (error) {
+      errors.push(
+        error instanceof Error
+          ? error.message
+          : `Linha ${line}: imagem_url inválida`,
       )
     }
 
@@ -159,7 +223,11 @@ function validateRows(rows: CatalogRow[]) {
       errors.push(
         `Linha ${line}: conflito no exercício-base ${row.codigo_base}`,
       )
-    } else if (!existing && row.codigo_base && muscleGroup) {
+    } else if (
+      !existing &&
+      row.codigo_base &&
+      muscleGroup
+    ) {
       bases.set(row.codigo_base, {
         name: row.exercicio_base,
         muscleGroup,
@@ -176,6 +244,23 @@ function validateRows(rows: CatalogRow[]) {
   return bases
 }
 
+function addChange(
+  changes: Change[],
+  code: string,
+  field: string,
+  previous: string | null,
+  next: string | null,
+) {
+  if (previous !== next) {
+    changes.push({
+      code,
+      field,
+      previous,
+      next,
+    })
+  }
+}
+
 async function main() {
   const args = process.argv.slice(2)
 
@@ -190,8 +275,7 @@ async function main() {
 
   const execute = args[0] === '--execute'
 
-  // Proteção: este importador só pode operar
-  // no banco PostgreSQL local de desenvolvimento.
+  // Proteção contra execução em banco remoto.
   const databaseUrl = process.env.DATABASE_URL
 
   if (!databaseUrl) {
@@ -242,41 +326,47 @@ async function main() {
 
   const bases = validateRows(rows)
 
+  const baseCodes = [...bases.keys()]
+  const variationCodes = rows.map((row) => row.codigo)
+
   console.log('\n=== IMPORTADOR DE EXERCÍCIOS ===')
   console.log(
     `Modo: ${execute ? 'EXECUÇÃO' : 'SIMULAÇÃO'}`,
   )
   console.log(`Exercícios-base no CSV: ${bases.size}`)
   console.log(`Variações no CSV: ${rows.length}`)
-  console.log(
-    `Registros com revisão pendente: ${
-      rows.filter(
-        (row) =>
-          row.status === 'REVISAR_GRUPO_PRIMARIO',
-      ).length
-    }`,
-  )
-
-  // Pré-verificação de códigos já existentes.
-  const baseCodes = [...bases.keys()]
-  const variationCodes = rows.map((row) => row.codigo)
 
   const [existingBases, existingVariations] =
     await Promise.all([
       prisma.exercise.findMany({
-        where: { code: { in: baseCodes } },
+        where: {
+          code: { in: baseCodes },
+        },
         select: {
+          id: true,
           code: true,
           name: true,
           muscleGroup: true,
         },
       }),
+
       prisma.exerciseVariation.findMany({
-        where: { code: { in: variationCodes } },
+        where: {
+          code: { in: variationCodes },
+        },
         select: {
+          id: true,
           code: true,
           name: true,
-          exercise: { select: { code: true } },
+          exerciseId: true,
+          exercise: {
+            select: {
+              code: true,
+            },
+          },
+          category: true,
+          level: true,
+          imageUrl: true,
         },
       }),
     ])
@@ -289,34 +379,98 @@ async function main() {
     existingVariations.map((item) => item.code),
   )
 
-  for (const existing of existingBases) {
-    const expected = bases.get(existing.code)
-
-    if (
-      !expected ||
-      expected.name !== existing.name ||
-      expected.muscleGroup !== existing.muscleGroup
-    ) {
-      throw new Error(
-        `Conflito com exercício-base existente: ${existing.code}`,
-      )
-    }
-  }
-
   const rowByCode = new Map(
     rows.map((row) => [row.codigo, row]),
   )
 
+  const changes: Change[] = []
+  const conflicts: string[] = []
+
+  // Permite corrigir nomes, mas não altera
+  // o grupo muscular de um código existente.
+  for (const existing of existingBases) {
+    const expected = bases.get(existing.code)
+
+    if (!expected) {
+      conflicts.push(
+        `Exercício-base ausente: ${existing.code}`,
+      )
+      continue
+    }
+
+    if (
+      expected.muscleGroup !== existing.muscleGroup
+    ) {
+      conflicts.push(
+        `Grupo muscular divergente: ${existing.code}`,
+      )
+    }
+
+    addChange(
+      changes,
+      existing.code,
+      'nome do exercício-base',
+      existing.name,
+      expected.name,
+    )
+  }
+
+  // Preserva a associação entre variação e base.
+  // A unificação definitiva será outra etapa.
   for (const existing of existingVariations) {
     const expected = rowByCode.get(existing.code)
 
+    if (!expected) {
+      conflicts.push(
+        `Variação ausente: ${existing.code}`,
+      )
+      continue
+    }
+
     if (
-      !expected ||
-      existing.name !== expected.nome ||
       existing.exercise.code !== expected.codigo_base
     ) {
-      throw new Error(
-        `Conflito com variação existente: ${existing.code}`,
+      conflicts.push(
+        `Variação ${existing.code}: exercício-base divergente. Atual: ${existing.exercise.code}; CSV: ${expected.codigo_base}`,
+      )
+    }
+
+    if (
+      existing.category !==
+      CATEGORIES[expected.categoria]
+    ) {
+      conflicts.push(
+        `Categoria divergente: ${existing.code}`,
+      )
+    }
+
+    if (
+      existing.level !== LEVELS[expected.nivel]
+    ) {
+      conflicts.push(
+        `Nível divergente: ${existing.code}`,
+      )
+    }
+
+    addChange(
+      changes,
+      existing.code,
+      'nome da variação',
+      existing.name,
+      expected.nome,
+    )
+
+    // Uma célula vazia não apaga a imagem
+    // anteriormente cadastrada.
+    const newImageUrl = optionalText(expected.imagem_url)
+
+    if (newImageUrl) {
+      addChange(
+        changes,
+        existing.code,
+        'imagem',
+        existing.imageUrl,
+        newImageUrl,
       )
     }
   }
@@ -327,21 +481,68 @@ async function main() {
   const newVariationCount =
     rows.length - existingVariationCodes.size
 
-    const editorialReviewCodes = rows
-      .filter((row) => row.status === 'REVISAR_GRUPO_PRIMARIO')
-      .map((row) => row.codigo)
+  const nameChanges = changes.filter(
+    (change) => change.field.includes('nome'),
+  )
 
-    console.log(
-      `Variações sinalizadas para revisão editorial: ${editorialReviewCodes.length}`,
+  const imageChanges = changes.filter(
+    (change) => change.field === 'imagem',
+  )
+
+  const editorialReviewCodes = rows
+    .filter(
+      (row) =>
+        row.status === 'REVISAR_GRUPO_PRIMARIO',
     )
+    .map((row) => row.codigo)
 
   console.log('\n--- PLANEJAMENTO ---')
-  console.log(`Novos exercícios-base: ${newBaseCount}`)
-  console.log(`Exercícios-base existentes: ${existingBases.length}`)
+  console.log(`Novas bases: ${newBaseCount}`)
+  console.log(`Bases existentes: ${existingBases.length}`)
   console.log(`Novas variações: ${newVariationCount}`)
   console.log(
     `Variações existentes: ${existingVariations.length}`,
   )
+  console.log(
+    `Alterações de nomes: ${nameChanges.length}`,
+  )
+  console.log(
+    `Alterações de imagens: ${imageChanges.length}`,
+  )
+  console.log(
+    `Variações com revisão editorial pendente: ${editorialReviewCodes.length}`,
+  )
+  console.log(
+    `Conflitos estruturais: ${conflicts.length}`,
+  )
+
+  if (changes.length > 0) {
+    console.log('\n--- ALTERAÇÕES PREVISTAS ---')
+
+    for (const change of changes) {
+      console.log(
+        `[${change.code}] ${change.field}`,
+      )
+      console.log(
+        `  ANTES: ${change.previous ?? '(vazio)'}`,
+      )
+      console.log(
+        `  DEPOIS: ${change.next ?? '(vazio)'}`,
+      )
+    }
+  }
+
+  if (conflicts.length > 0) {
+    console.error('\n--- CONFLITOS ---')
+
+    for (const conflict of conflicts) {
+      console.error(`- ${conflict}`)
+    }
+
+    throw new Error(
+      'Importação bloqueada por conflitos estruturais. Nenhuma alteração realizada.',
+    )
+  }
 
   if (!execute) {
     console.log('\nSIMULAÇÃO CONCLUÍDA')
@@ -358,20 +559,26 @@ async function main() {
       for (const [code, base] of bases) {
         const exercise = await tx.exercise.upsert({
           where: { code },
-          update: {},
+          update: {
+            name: base.name,
+          },
           create: {
             code,
             name: base.name,
             muscleGroup: base.muscleGroup,
           },
-          select: { id: true },
+          select: {
+            id: true,
+          },
         })
 
         baseIds.set(code, exercise.id)
       }
 
       for (const row of rows) {
-        const exerciseId = baseIds.get(row.codigo_base)
+        const exerciseId = baseIds.get(
+          row.codigo_base,
+        )
 
         if (!exerciseId) {
           throw new Error(
@@ -379,49 +586,56 @@ async function main() {
           )
         }
 
+        const newImageUrl = optionalText(
+          row.imagem_url,
+        )
+
+        const commonData = {
+          name: row.nome,
+          equipment: optionalText(
+            row.equipamento,
+          ),
+          subgroup: optionalText(row.grupo),
+          description: optionalText(
+            row.variacao,
+          ),
+          instructions: optionalText(
+            row.instrucoes,
+          ),
+          safetyNotes: optionalText(
+            row.cuidados,
+          ),
+          muscleExplanation:
+            muscleExplanation(row),
+          needsEditorialReview:
+            row.status ===
+            'REVISAR_GRUPO_PRIMARIO',
+        }
+
         await tx.exerciseVariation.upsert({
-          where: { code: row.codigo },
-          update: {
-            name: row.nome,
-            equipment: optionalText(row.equipamento),
-            subgroup: optionalText(row.grupo),
-            description: optionalText(row.variacao),
-            instructions: optionalText(row.instrucoes),
-            safetyNotes: optionalText(row.cuidados),
-            muscleExplanation: [
-              row.musculos_principais &&
-                `Principais: ${row.musculos_principais}`,
-              row.musculos_auxiliares &&
-                `Auxiliares: ${row.musculos_auxiliares}`,
-            ]
-              .filter(Boolean)
-              .join(' | ') || null,
-            needsEditorialReview:
-              row.status === 'REVISAR_GRUPO_PRIMARIO',
+          where: {
+            code: row.codigo,
           },
+
+          update: {
+            ...commonData,
+
+            // Não apaga imagem existente
+            // quando a célula CSV está vazia.
+            ...(newImageUrl
+              ? { imageUrl: newImageUrl }
+              : {}),
+          },
+
           create: {
             exerciseId,
             trainerId: null,
             code: row.codigo,
-            name: row.nome,
-            category: CATEGORIES[row.categoria],
+            category:
+              CATEGORIES[row.categoria],
             level: LEVELS[row.nivel],
-            equipment: optionalText(row.equipamento),
-            subgroup: optionalText(row.grupo),
-            description: optionalText(row.variacao),
-            instructions: optionalText(row.instrucoes),
-            safetyNotes: optionalText(row.cuidados),
-            muscleExplanation: [
-              row.musculos_principais &&
-                `Principais: ${row.musculos_principais}`,
-              row.musculos_auxiliares &&
-                `Auxiliares: ${row.musculos_auxiliares}`,
-            ]
-              .filter(Boolean)
-              .join(' | ') || null,
-            imageUrl: optionalText(row.imagem_url),
-            needsEditorialReview:
-              row.status === 'REVISAR_GRUPO_PRIMARIO',
+            ...commonData,
+            imageUrl: newImageUrl,
             status: 'DRAFT',
           },
         })
@@ -434,10 +648,20 @@ async function main() {
   )
 
   console.log('\nIMPORTAÇÃO CONCLUÍDA')
-  console.log(`Novos exercícios-base previstos: ${newBaseCount}`)
-  console.log(`Novas variações previstas: ${newVariationCount}`)
+  console.log(`Novas bases previstas: ${newBaseCount}`)
+  console.log(
+    `Novas variações previstas: ${newVariationCount}`,
+  )
+  console.log(
+    `Nomes atualizados previstos: ${nameChanges.length}`,
+  )
+  console.log(
+    `Imagens atualizadas previstas: ${imageChanges.length}`,
+  )
+  console.log('IDs existentes preservados.')
+  console.log('Nenhuma variação existente foi excluída.')
+  console.log('Status das variações existentes preservados.')
   console.log('Novas variações criadas em DRAFT.')
-  console.log('Registros existentes preservados.')
 }
 
 main()

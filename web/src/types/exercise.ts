@@ -39,6 +39,14 @@ export type ExerciseStatus =
   | 'ACTIVE'
   | 'INACTIVE'
 
+  /**
+   * Situação da revisão da imagem de uma variação.
+   */
+  export type ExerciseImageStatus =
+    | "PENDING"
+    | "APPROVED"
+    | "REJECTED";
+    
 /**
  * Variação associada a um exercício-base.
  */
@@ -57,6 +65,9 @@ export interface ExerciseVariation {
   safetyNotes: string | null
   muscleExplanation: string | null
   imageUrl: string | null
+  imageReviewStatus: ExerciseImageStatus
+  imageReviewNotes: string | null
+  imageReviewedAt: string | null
   videoUrl: string | null
   status: ExerciseStatus
   createdAt: string

@@ -1,7 +1,11 @@
 import { prisma } from '../lib/prisma.js'
 import { AppError } from '../lib/app-error.js'
+import { getRequestedOrganizationId } from '../lib/organization-request-context.js'
 
-export async function getTrainerContext(userId: string) {
+export async function getTrainerContext(
+  userId: string,
+  selectedOrganizationId?: string,
+) {
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: {
@@ -32,14 +36,34 @@ export async function getTrainerContext(userId: string) {
     throw new AppError('Treinador não autorizado.', 403)
   }
 
-  if (user.organizationMemberships.length === 0) {
-    throw new AppError(
-      'Treinador sem organização ativa.',
-      403,
-    )
+  const memberships = user.organizationMemberships
+
+  if (memberships.length === 0) {
+    throw new AppError('Treinador sem organização ativa.', 403)
   }
 
-  if (user.organizationMemberships.length > 1) {
+  const requestedOrganizationId =
+    selectedOrganizationId ?? getRequestedOrganizationId()
+
+  if (requestedOrganizationId) {
+    const membership = memberships.find(
+      (item) => item.organizationId === requestedOrganizationId,
+    )
+
+    if (!membership) {
+      throw new AppError(
+        'Você não possui permissão nesta organização.',
+        403,
+      )
+    }
+
+    return {
+      trainerId: user.trainer.id,
+      organizationId: membership.organizationId,
+    }
+  }
+
+  if (memberships.length > 1) {
     throw new AppError(
       'É necessário selecionar uma organização.',
       400,
@@ -48,6 +72,6 @@ export async function getTrainerContext(userId: string) {
 
   return {
     trainerId: user.trainer.id,
-    organizationId: user.organizationMemberships[0]!.organizationId,
+    organizationId: memberships[0]!.organizationId,
   }
 }
