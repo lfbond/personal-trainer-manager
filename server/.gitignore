@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.*
+
+# Allow environment examples
+!.env.example
+
+# Generated Prisma Client
+/src/generated/prisma/
+
+# Temporary migration preview
+/migration_preview.sql
+
+.dump

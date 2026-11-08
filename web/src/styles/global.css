@@ -1,0 +1,126 @@
+
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+/* Tailwind v4: tema escuro controlado pela classe .dark */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ========================================
+   DESIGN SYSTEM — PERSONAL TRAINER MANAGER
+   ======================================== */
+
+@theme inline {
+  --color-primary: var(--app-primary);
+  --color-primary-hover: var(--app-primary-hover);
+  --color-danger: var(--app-danger);
+
+  --color-surface: var(--app-surface);
+  --color-page: var(--app-page);
+  --color-sidebar: var(--app-sidebar);
+  --color-sidebar-hover: var(--app-sidebar-hover);
+
+  --color-text-primary: var(--app-text-primary);
+  --color-text-secondary: var(--app-text-secondary);
+  --color-border-default: var(--app-border);
+
+  --spacing-sidebar: 16rem;
+}
+
+/* ========================================
+   TEMA CLARO
+   ======================================== */
+
+:root {
+  --app-primary: #16a34a;
+  --app-primary-hover: #15803d;
+  --app-danger: #ef4444;
+
+  --app-surface: #ffffff;
+  --app-page: #f4f4f5;
+  --app-sidebar: #ffffff;
+  --app-sidebar-hover: #f4f4f5;
+
+  --app-text-primary: #18181b;
+  --app-text-secondary: #71717a;
+  --app-border: #e4e4e7;
+
+  color-scheme: light;
+}
+
+/* ========================================
+   TEMA ESCURO
+   ======================================== */
+
+:root.dark {
+  --app-primary: #22c55e;
+  --app-primary-hover: #16a34a;
+  --app-danger: #f87171;
+
+  --app-surface: #27272a;
+  --app-page: #18181b;
+  --app-sidebar: #09090b;
+  --app-sidebar-hover: #27272a;
+
+  --app-text-primary: #fafafa;
+  --app-text-secondary: #a1a1aa;
+  --app-border: #3f3f46;
+
+  color-scheme: dark;
+}
+
+/* ========================================
+   ESTILOS GLOBAIS
+   ======================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  background: var(--app-page);
+  color: var(--app-text-primary);
+
+  font-family: Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body,
+input,
+textarea,
+button,
+select {
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button,
+input,
+textarea,
+select {
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+a {
+  color: inherit;
+}

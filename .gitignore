@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+build/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor
+.vscode/
+.idea/
+
+# Operating system
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage/
+
+server/backups/
+
+# ============================================
+# BACKUPS DO BANCO DE DADOS - POSTGRESQL
+# ============================================
+
+# Ignorar backups em qualquer pasta
+*.dump
+*.backup
+*.sql.gz
+
+# Ignorar especificamente o backup atual
+/server/personal_trainer_manager_backup.dump
