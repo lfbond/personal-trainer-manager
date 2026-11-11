@@ -10,6 +10,8 @@ import { Exercises } from "../pages/Exercises";
 import { Workouts } from "../pages/Workouts";
 import { AdminExercises } from "../pages/AdminExercises";
 import { AdminExerciseImages } from "../pages/AdminExerciseImages";
+import { PublicDemo } from "../pages/PublicDemo";
+import { PublicCatalog } from "../pages/PublicCatalog";
 
 import { AdminOrganizations } from "../pages/AdminOrganizations";
 import { AdminOrganizationMembers } from "../pages/AdminOrganizationMembers";
@@ -19,6 +21,42 @@ export const router = createBrowserRouter([
     path: "/login",
     element: <Login />,
   },
+
+  {
+    path: "/demo",
+    element: <AppLayout />,
+    children: [
+      {
+        index: true,
+        element: <PublicDemo />,
+      },
+      {
+        path: "students",
+        element: <PublicDemo />,
+      },
+      {
+        path: "exercises",
+        element: <PublicCatalog />,
+      },
+      {
+        path: "workouts",
+        element: <PublicDemo />,
+      },
+      {
+        path: "admin/exercises",
+        element: <PublicDemo />,
+      },
+      {
+        path: "admin/images",
+        element: <PublicDemo />,
+      },
+      {
+        path: "admin/organizations",
+        element: <PublicDemo />,
+      },
+    ],
+  },
+
   {
     element: <ProtectedRoute />,
     children: [

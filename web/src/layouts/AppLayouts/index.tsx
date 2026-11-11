@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
 
 import { useTheme } from "../../hooks/useTheme";
 import { useAuth } from "../../hooks/useAuth";
+
 import {
   api,
   getActiveOrganizationId,
@@ -26,6 +27,7 @@ type OrganizationResult = {
 
 export function AppLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
+
   const [organizationResult, setOrganizationResult] =
     useState<OrganizationResult | null>(null);
 
@@ -34,15 +36,22 @@ export function AppLayout() {
   >(getActiveOrganizationId);
 
   const navigate = useNavigate();
-  const { user, signOut } = useAuth();
-  const { preference, resolvedTheme, setPreference } = useTheme();
+  const location = useLocation();
 
+  const isDemoMode =
+    location.pathname === "/demo" || location.pathname.startsWith("/demo/");
+
+  const { user, signOut } = useAuth();
+  const isVisitor = !user;
+
+  const { preference, resolvedTheme, setPreference } = useTheme();
   const isDark = resolvedTheme === "dark";
+
   const userId = user?.id;
   const isPlatformAdmin = user?.isPlatformAdmin;
 
   useEffect(() => {
-    if (!userId || isPlatformAdmin) {
+    if (isDemoMode || !userId || isPlatformAdmin) {
       return;
     }
 
@@ -70,10 +79,13 @@ export function AppLayout() {
     return () => {
       active = false;
     };
-  }, [userId, isPlatformAdmin]);
+  }, [userId, isPlatformAdmin, isDemoMode]);
 
   const managedOrganizations =
-    userId && !isPlatformAdmin && organizationResult?.userId === userId
+    !isDemoMode &&
+    userId &&
+    !isPlatformAdmin &&
+    organizationResult?.userId === userId
       ? organizationResult.organizations
       : [];
 
@@ -88,14 +100,16 @@ export function AppLayout() {
     closeMenu();
     navigate("/", { replace: true });
 
-    // Atualiza Dashboard e páginas que carregam dados no mount.
+    // Atualiza as páginas que carregam dados na montagem.
     window.location.reload();
   }
 
   function handleLogout() {
     closeMenu();
+
     setActiveOrganizationId(null);
     setActiveOrganizationIdState(null);
+
     signOut();
     navigate("/login", { replace: true });
   }
@@ -154,6 +168,19 @@ export function AppLayout() {
             <span className={`text-sm font-normal ${mutedTextClassName}`}>
               Manager
             </span>
+            {isDemoMode && (
+              <span
+                className={[
+                  "mt-2 inline-flex w-fit rounded-md px-3 py-1",
+                  "text-xs font-semibold",
+                  isDark
+                    ? "bg-green-900/40 text-green-300"
+                    : "bg-green-100 text-green-800",
+                ].join(" ")}
+              >
+                Modo demonstração
+              </span>
+            )}
           </strong>
 
           <button
@@ -187,7 +214,7 @@ export function AppLayout() {
             className="flex flex-col gap-2"
           >
             <NavLink
-              to="/"
+              to={isDemoMode ? "/demo" : "/"}
               end
               className={getNavigationClassName}
               onClick={closeMenu}
@@ -196,7 +223,7 @@ export function AppLayout() {
             </NavLink>
 
             <NavLink
-              to="/students"
+              to={isDemoMode ? "/demo/students" : "/students"}
               className={getNavigationClassName}
               onClick={closeMenu}
             >
@@ -204,7 +231,7 @@ export function AppLayout() {
             </NavLink>
 
             <NavLink
-              to="/exercises"
+              to={isDemoMode ? "/demo/exercises" : "/exercises"}
               className={getNavigationClassName}
               onClick={closeMenu}
             >
@@ -212,7 +239,7 @@ export function AppLayout() {
             </NavLink>
 
             <NavLink
-              to="/workouts"
+              to={isDemoMode ? "/demo/workouts" : "/workouts"}
               className={getNavigationClassName}
               onClick={closeMenu}
             >
@@ -304,7 +331,7 @@ export function AppLayout() {
               </>
             )}
 
-            {user?.isPlatformAdmin && (
+            {(isDemoMode || user?.isPlatformAdmin) && (
               <>
                 <div className={`mt-4 border-t pt-4 ${dividerClassName}`}>
                   <p
@@ -315,7 +342,7 @@ export function AppLayout() {
                 </div>
 
                 <NavLink
-                  to="/admin/exercises"
+                  to={isDemoMode ? "/demo/admin/exercises" : "/admin/exercises"}
                   className={getNavigationClassName}
                   onClick={closeMenu}
                 >
@@ -323,7 +350,7 @@ export function AppLayout() {
                 </NavLink>
 
                 <NavLink
-                  to="/admin/images"
+                  to={isDemoMode ? "/demo/admin/images" : "/admin/images"}
                   className={getNavigationClassName}
                   onClick={closeMenu}
                 >
@@ -331,7 +358,11 @@ export function AppLayout() {
                 </NavLink>
 
                 <NavLink
-                  to="/admin/organizations"
+                  to={
+                    isDemoMode
+                      ? "/demo/admin/organizations"
+                      : "/admin/organizations"
+                  }
                   className={getNavigationClassName}
                   onClick={closeMenu}
                 >
@@ -425,21 +456,38 @@ export function AppLayout() {
               </div>
             )}
 
-            <button
-              type="button"
-              onClick={handleLogout}
-              className={[
-                "flex min-h-11 w-full items-center justify-center gap-2",
-                "rounded-lg border px-4 py-3",
-                "text-sm font-semibold transition-colors",
-                "focus-visible:outline-2 focus-visible:outline-offset-2",
-                "focus-visible:outline-red-500",
-                logoutButtonClassName,
-              ].join(" ")}
-            >
-              <span aria-hidden="true">↪</span>
-              Sair da conta
-            </button>
+            {isVisitor ? (
+              <NavLink
+                to="/login"
+                onClick={closeMenu}
+                className={[
+                  "flex min-h-11 w-full items-center justify-center",
+                  "rounded-lg bg-green-600 px-4 py-3",
+                  "text-sm font-semibold !text-white no-underline",
+                  "transition-colors hover:bg-green-700",
+                  "focus-visible:outline-2 focus-visible:outline-offset-2",
+                  "focus-visible:outline-green-500",
+                ].join(" ")}
+              >
+                Entrar na plataforma
+              </NavLink>
+            ) : (
+              <button
+                type="button"
+                onClick={handleLogout}
+                className={[
+                  "flex min-h-11 w-full items-center justify-center gap-2",
+                  "rounded-lg border px-4 py-3",
+                  "text-sm font-semibold transition-colors",
+                  "focus-visible:outline-2 focus-visible:outline-offset-2",
+                  "focus-visible:outline-red-500",
+                  logoutButtonClassName,
+                ].join(" ")}
+              >
+                <span aria-hidden="true">↪</span>
+                Sair da conta
+              </button>
+            )}
           </div>
         </div>
       </aside>
