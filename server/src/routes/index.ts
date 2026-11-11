@@ -7,6 +7,7 @@ import { studentRoutes } from './student.routes.js'
 import { exerciseRoutes } from './exercise.routes.js'
 import { platformAdminRoutes } from './platform-admin.routes.js'
 import { workoutRoutes } from './workout.routes.js'
+import { publicExerciseRoutes } from './public-exercise.routes.js'
 
 import {
   platformOrganizationRoutes,
@@ -21,6 +22,9 @@ routes.use('/health', healthRoutes)
 routes.use('/database-health', databaseHealthRoutes)
 
 routes.use('/auth', authRoutes)
+
+// Catálogo público de exercícios — acesso sem autenticação.
+routes.use('/public/exercises', publicExerciseRoutes)
 
 // Disponibiliza a organização selecionada para as rotas seguintes.
 routes.use(organizationContextMiddleware)
