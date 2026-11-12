@@ -34,24 +34,32 @@ function getErrorMessage(error: unknown): string {
         }
       | undefined;
 
-    if (error.response?.status === 403) {
-      return (
-        "Você não possui permissão para realizar esta operação. " +
-        "Nesta versão, a emissão de convites é exclusiva " +
-        "do proprietário da plataforma."
-      );
-    }
-
     const validationMessages = data?.issues ?? data?.errors;
 
     if (validationMessages?.length) {
-      return validationMessages
+      const messages = validationMessages
         .map((issue) => issue.message)
         .filter(Boolean)
         .join(" ");
+
+      if (messages) {
+        return messages;
+      }
     }
 
-    return data?.message ?? "Não foi possível concluir a operação.";
+    if (data?.message) {
+      return data.message;
+    }
+
+    if (error.response?.status === 403) {
+      return "Você não possui permissão para realizar esta operação.";
+    }
+
+    if (error.response?.status === 401) {
+      return "Sua sessão expirou. Faça login novamente.";
+    }
+
+    return "Não foi possível concluir a operação.";
   }
 
   if (error instanceof Error) {
@@ -77,7 +85,6 @@ export function AdminOrganizationMembers() {
   }>();
 
   const [members, setMembers] = useState<OrganizationMember[]>([]);
-
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -91,6 +98,9 @@ export function AdminOrganizationMembers() {
 
   const [generatedInvitation, setGeneratedInvitation] =
     useState<GeneratedInvitation | null>(null);
+
+  const [pendingStatusMember, setPendingStatusMember] =
+    useState<OrganizationMember | null>(null);
 
   const canSubmit =
     Boolean(organizationId) && email.trim().length > 0 && !saving && !loading;
@@ -238,11 +248,12 @@ export function AdminOrganizationMembers() {
     member: OrganizationMember,
     nextRole: EditableRole,
   ) {
-    if (!organizationId || member.role === "OWNER") {
-      return;
-    }
-
-    if (member.role === nextRole) {
+    if (
+      !organizationId ||
+      member.role === "OWNER" ||
+      member.role === nextRole ||
+      updatingId
+    ) {
       return;
     }
 
@@ -265,20 +276,22 @@ export function AdminOrganizationMembers() {
     }
   }
 
-  async function handleToggleStatus(member: OrganizationMember) {
-    if (!organizationId || member.role === "OWNER") {
+  function handleToggleStatus(member: OrganizationMember) {
+    if (!organizationId || member.role === "OWNER" || updatingId) {
       return;
     }
 
-    const action = member.isActive ? "desativar" : "ativar";
+    setError("");
+    setSuccess("");
+    setPendingStatusMember(member);
+  }
 
-    if (
-      !window.confirm(
-        `Deseja realmente ${action} o vínculo de ${member.user.name}?`,
-      )
-    ) {
+  async function handleConfirmStatusChange() {
+    if (!organizationId || !pendingStatusMember || updatingId) {
       return;
     }
+
+    const member = pendingStatusMember;
 
     try {
       setUpdatingId(member.id);
@@ -289,10 +302,17 @@ export function AdminOrganizationMembers() {
         isActive: !member.isActive,
       });
 
+      setPendingStatusMember(null);
+
       await loadMembers();
 
-      setSuccess("Situação do vínculo atualizada.");
+      setSuccess(
+        member.isActive
+          ? "Vínculo desativado com sucesso."
+          : "Vínculo ativado com sucesso.",
+      );
     } catch (requestError) {
+      setPendingStatusMember(null);
       setError(getErrorMessage(requestError));
     } finally {
       setUpdatingId(null);
@@ -404,8 +424,10 @@ export function AdminOrganizationMembers() {
             </form>
 
             <p className="mt-4 text-xs text-slate-500 dark:text-slate-400">
-              Nesta versão, apenas o proprietário da plataforma pode emitir
-              convites. O link expira em 48 horas e permite uma única ativação.
+              Proprietários e gestores globais podem emitir convites
+              administrativos. Administradores locais podem convidar professores
+              da própria organização. O link expira em 48 horas e permite uma
+              única ativação.
             </p>
           </section>
 
@@ -500,7 +522,7 @@ export function AdminOrganizationMembers() {
               <button
                 type="button"
                 onClick={() => void loadMembers()}
-                disabled={loading}
+                disabled={loading || Boolean(updatingId)}
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200"
               >
                 Atualizar
@@ -558,7 +580,9 @@ export function AdminOrganizationMembers() {
 
                               <select
                                 value={member.role}
-                                disabled={isUpdating}
+                                disabled={
+                                  isUpdating || Boolean(updatingId) || loading
+                                }
                                 onChange={(event) =>
                                   void handleChangeRole(
                                     member,
@@ -574,8 +598,10 @@ export function AdminOrganizationMembers() {
 
                             <button
                               type="button"
-                              disabled={isUpdating}
-                              onClick={() => void handleToggleStatus(member)}
+                              disabled={
+                                isUpdating || Boolean(updatingId) || loading
+                              }
+                              onClick={() => handleToggleStatus(member)}
                               className={`rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50 ${
                                 member.isActive
                                   ? "bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-950 dark:text-red-300"
@@ -598,6 +624,72 @@ export function AdminOrganizationMembers() {
             )}
           </section>
         </>
+      )}
+
+      {pendingStatusMember && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          role="presentation"
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-status-title"
+            aria-describedby="confirm-status-description"
+            className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-slate-900"
+          >
+            <h2
+              id="confirm-status-title"
+              className="text-lg font-bold text-slate-900 dark:text-white"
+            >
+              Confirmar alteração de acesso
+            </h2>
+
+            <p
+              id="confirm-status-description"
+              className="mt-3 text-sm text-slate-600 dark:text-slate-300"
+            >
+              Deseja realmente{" "}
+              <strong>
+                {pendingStatusMember.isActive ? "desativar" : "ativar"}
+              </strong>{" "}
+              o vínculo de <strong>{pendingStatusMember.user.name}</strong>?
+            </p>
+
+            <p className="mt-3 text-xs text-slate-500 dark:text-slate-400">
+              Esta operação altera o acesso do profissional somente nesta
+              organização.
+            </p>
+
+            <div className="mt-6 flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                disabled={Boolean(updatingId)}
+                onClick={() => setPendingStatusMember(null)}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                disabled={Boolean(updatingId)}
+                onClick={() => void handleConfirmStatusChange()}
+                className={`rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ${
+                  pendingStatusMember.isActive
+                    ? "bg-red-600 hover:bg-red-700"
+                    : "bg-green-600 hover:bg-green-700"
+                }`}
+              >
+                {updatingId
+                  ? "Salvando..."
+                  : pendingStatusMember.isActive
+                    ? "Confirmar desativação"
+                    : "Confirmar ativação"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

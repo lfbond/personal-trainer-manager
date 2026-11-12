@@ -21,7 +21,10 @@ import {
   reviewExerciseImagesBatch,
 } from '../services/exercise.service.js'
 
-import { getTrainerContext } from '../services/trainer-context.service.js'
+import {
+  getTrainerContext,
+  getCatalogReviewerContext,
+} from '../services/trainer-context.service.js'
 
 // ============================================================
 // SCHEMAS DE REVISÃO DE IMAGENS
@@ -71,7 +74,7 @@ const batchReviewImagesBodySchema =
 // AUTENTICAÇÃO E CONTEXTO
 // ============================================================
 
-async function getAuthenticatedTrainerContext(
+function getAuthenticatedUserId(
   res: Parameters<RequestHandler>[1],
 ) {
   const userId = res.locals.userId as string | undefined
@@ -83,7 +86,21 @@ async function getAuthenticatedTrainerContext(
     )
   }
 
-  return getTrainerContext(userId)
+  return userId
+}
+
+async function getAuthenticatedTrainerContext(
+  res: Parameters<RequestHandler>[1],
+) {
+  return getTrainerContext(getAuthenticatedUserId(res))
+}
+
+async function getAuthenticatedReviewerContext(
+  res: Parameters<RequestHandler>[1],
+) {
+  return getCatalogReviewerContext(
+    getAuthenticatedUserId(res),
+  )
 }
 
 // ============================================================
@@ -196,7 +213,7 @@ export const listExerciseImageReviewsController:
       listImageReviewsQuerySchema.parse(req.query)
 
     const context =
-      await getAuthenticatedTrainerContext(res)
+      await getAuthenticatedReviewerContext(res)
 
     const result = await listExerciseImageReviews({
       ...context,
@@ -218,7 +235,7 @@ export const reviewExerciseImageController:
       reviewImageBodySchema.parse(req.body)
 
     const context =
-      await getAuthenticatedTrainerContext(res)
+      await getAuthenticatedReviewerContext(res)
 
     const result = await reviewExerciseImage({
       ...context,
@@ -239,7 +256,7 @@ export const reviewExerciseImagesBatchController:
       batchReviewImagesBodySchema.parse(req.body)
 
     const context =
-      await getAuthenticatedTrainerContext(res)
+      await getAuthenticatedReviewerContext(res)
 
     const result = await reviewExerciseImagesBatch({
       ...context,
@@ -248,5 +265,3 @@ export const reviewExerciseImagesBatchController:
 
     res.status(200).json(result)
   }
-
-  

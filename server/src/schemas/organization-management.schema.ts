@@ -71,6 +71,33 @@ export const createOrganizationSchema = z.object({
   ownerUserId: uuidSchema,
 })
 
+export const updateOrganizationSchema = z
+  .object({
+    name: z.string().trim().min(2).max(120).optional(),
+    slug: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .min(3)
+      .max(80)
+      .regex(
+        /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
+        'Use apenas letras minúsculas, números e hífens.',
+      )
+      .optional(),
+    isActive: z.boolean().optional(),
+  })
+  .strict()
+  .refine(
+    (data) =>
+      data.name !== undefined ||
+      data.slug !== undefined ||
+      data.isActive !== undefined,
+    {
+      message: 'Informe pelo menos um campo para atualização.',
+    },
+  )
+
 export const createOrganizationTrainerSchema = z
   .object({
     name: z.string().trim().min(2).max(120),
@@ -116,6 +143,7 @@ export const updateOrganizationMemberSchema = z
     isActive: z.boolean().optional(),
     role: z.enum(['ADMIN', 'TRAINER']).optional(),
   })
+  .strict()
   .refine(
     (data) =>
       data.isActive !== undefined ||

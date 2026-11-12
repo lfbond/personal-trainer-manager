@@ -6,9 +6,9 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma.js'
 import { AppError } from '../lib/app-error.js'
 import { hashPassword } from '../lib/password.js'
+import { isPlatformOwner } from '../lib/platform-owner.js'
 
 import { requireAuth } from '../middlewares/auth.middleware.js'
-import { requirePlatformManager } from '../middlewares/platform-manager.middleware.js'
 
 import { strongPasswordSchema } from '../schemas/organization-management.schema.js'
 
@@ -68,13 +68,29 @@ function validatePasswordIdentity(
 export const ownerInvitationRoutes = Router()
 export const publicInvitationRoutes = Router()
 
-// Proprietário técnico e gestores operacionais globais
-// podem emitir convites para organizações ativas.
 ownerInvitationRoutes.use(requireAuth)
-ownerInvitationRoutes.use(requirePlatformManager)
 
 ownerInvitationRoutes.post('/', async (req, res) => {
   const data = createInvitationSchema.parse(req.body)
+
+  const actorUserId = res.locals.userId as string | undefined
+
+  if (!actorUserId) {
+    throw new AppError('Usuário não autenticado.', 401)
+  }
+
+  const actor = await prisma.user.findUnique({
+    where: { id: actorUserId },
+    select: {
+      isActive: true,
+      isPlatformAdmin: true,
+      isPlatformManager: true,
+    },
+  })
+
+  if (!actor?.isActive) {
+    throw new AppError('Usuário sem acesso ativo.', 403)
+  }
 
   const organization = await prisma.organization.findUnique({
     where: { id: data.organizationId },
@@ -92,6 +108,47 @@ ownerInvitationRoutes.post('/', async (req, res) => {
     )
   }
 
+  const hasGlobalPermission =
+    isPlatformOwner(actorUserId) ||
+    actor.isPlatformAdmin ||
+    actor.isPlatformManager
+
+  if (!hasGlobalPermission) {
+    const membership =
+      await prisma.organizationMember.findUnique({
+        where: {
+          organizationId_userId: {
+            organizationId: data.organizationId,
+            userId: actorUserId,
+          },
+        },
+        select: {
+          role: true,
+          isActive: true,
+        },
+      })
+
+    if (
+      !membership?.isActive ||
+      !['OWNER', 'ADMIN'].includes(membership.role)
+    ) {
+      throw new AppError(
+        'Você não possui permissão para emitir convites nesta organização.',
+        403,
+      )
+    }
+
+    if (
+      data.role === 'ADMIN' &&
+      membership.role !== 'OWNER'
+    ) {
+      throw new AppError(
+        'Somente o proprietário da organização ou a gestão global pode convidar administradores.',
+        403,
+      )
+    }
+  }
+
   const existingUser = await prisma.user.findUnique({
     where: { email: data.email },
     select: { id: true },
@@ -104,8 +161,6 @@ ownerInvitationRoutes.post('/', async (req, res) => {
     )
   }
 
-  // Invalida convites anteriores ainda não utilizados
-  // para o mesmo e-mail e organização.
   await prisma.organizationInvitation.deleteMany({
     where: {
       organizationId: data.organizationId,
@@ -140,7 +195,6 @@ ownerInvitationRoutes.post('/', async (req, res) => {
   })
 })
 
-// Consulta pública: exige conhecimento do token.
 publicInvitationRoutes.get('/:token', async (req, res) => {
   const { token } = invitationParamsSchema.parse(req.params)
 
@@ -176,7 +230,6 @@ publicInvitationRoutes.get('/:token', async (req, res) => {
   })
 })
 
-// Cadastro e consumo do convite em uma única transação.
 publicInvitationRoutes.post(
   '/:token/accept',
   async (req, res) => {
@@ -247,8 +300,6 @@ publicInvitationRoutes.post(
             passwordHash,
             role: 'TRAINER',
             isActive: true,
-
-            // Convites nunca concedem permissões globais.
             isPlatformAdmin: false,
             isPlatformManager: false,
             canReviewExercises: false,

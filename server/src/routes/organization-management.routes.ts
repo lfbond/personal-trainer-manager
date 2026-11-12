@@ -15,6 +15,7 @@ import {
 import {
   listOrganizationsController,
   createOrganizationController,
+  updateOrganizationController,
   listOrganizationMembersController,
   createOrganizationTrainerController,
   updateOrganizationMemberController,
@@ -55,10 +56,23 @@ platformOrganizationRoutes.post(
   createOrganizationController,
 )
 
+// Gestão operacional global:
+// editar, desativar e reativar organizações.
+platformOrganizationRoutes.patch(
+  '/:organizationId',
+  updateOrganizationController,
+)
+
 export const organizationManagementRoutes = Router()
 
 organizationManagementRoutes.use(requireAuth)
 
+// Lista todas as organizações ativas às quais o usuário
+// possui vínculo ativo, independentemente do papel local.
+//
+// OWNER e ADMIN continuam com suas permissões de gestão.
+// TRAINER pode selecionar a organização para trabalhar
+// com alunos, exercícios e treinos.
 organizationManagementRoutes.get(
   '/mine',
   async (_req, res) => {
@@ -87,7 +101,7 @@ organizationManagementRoutes.get(
       where: {
         userId,
         isActive: true,
-        role: { in: ['OWNER', 'ADMIN'] },
+        role: { in: ['OWNER', 'ADMIN', 'TRAINER'] },
         organization: {
           isActive: true,
         },
@@ -112,12 +126,14 @@ organizationManagementRoutes.get(
   },
 )
 
+// Gestão de membros: somente OWNER e ADMIN.
 organizationManagementRoutes.get(
   '/:organizationId/members',
   requireOrganizationAdmin,
   listOrganizationMembersController,
 )
 
+// Cadastro administrativo de treinadores.
 organizationManagementRoutes.post(
   '/:organizationId/trainers',
   requireOrganizationAdmin,
@@ -141,8 +157,9 @@ organizationManagementRoutes.post(
   createOrganizationTrainerController,
 )
 
+// Atualização de membros: somente OWNER e ADMIN.
 organizationManagementRoutes.patch(
   '/:organizationId/members/:memberId',
-  requireOrganizationOwner,
+  requireOrganizationAdmin,
   updateOrganizationMemberController,
 )

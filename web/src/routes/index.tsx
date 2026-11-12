@@ -91,11 +91,6 @@ export const router = createBrowserRouter([
                 path: "admin/exercises",
                 element: <AdminExercises />,
               },
-            ],
-          },
-          {
-            element: <PermissionRoute permission="platformAdmin" />,
-            children: [
               {
                 path: "admin/images",
                 element: <AdminExerciseImages />,

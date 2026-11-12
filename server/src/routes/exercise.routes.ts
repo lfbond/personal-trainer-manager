@@ -2,6 +2,7 @@
 import { Router } from 'express'
 
 import { requireAuth } from '../middlewares/auth.middleware.js'
+import { requireCatalogReviewer } from '../middlewares/catalog-review.middleware.js'
 
 import {
   listExercisesController,
@@ -40,18 +41,21 @@ exerciseRoutes.get(
 // Listar imagens com filtros de revisão.
 exerciseRoutes.get(
   '/images/reviews',
+  requireCatalogReviewer,
   listExerciseImageReviewsController,
 )
 
 // Aprovar ou rejeitar imagens em lote.
 exerciseRoutes.patch(
   '/images/reviews/batch',
+  requireCatalogReviewer,
   reviewExerciseImagesBatchController,
 )
 
 // Aprovar, rejeitar ou devolver uma imagem para revisão.
 exerciseRoutes.patch(
   '/variations/:id/image-review',
+  requireCatalogReviewer,
   reviewExerciseImageController,
 )
 
