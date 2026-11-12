@@ -48,7 +48,13 @@ export function AppLayout() {
   const isDark = resolvedTheme === "dark";
 
   const userId = user?.id;
-  const isPlatformAdmin = user?.isPlatformAdmin;
+  const isPlatformAdmin = user?.isPlatformAdmin === true;
+  const isPlatformManager = user?.isPlatformManager === true;
+  const canReviewExercises = user?.canReviewExercises === true;
+
+  const canManagePlatform = isPlatformAdmin || isPlatformManager;
+
+  const canAccessCatalogReview = isPlatformAdmin || canReviewExercises;
 
   useEffect(() => {
     if (isDemoMode || !userId || isPlatformAdmin) {
@@ -100,7 +106,6 @@ export function AppLayout() {
     closeMenu();
     navigate("/", { replace: true });
 
-    // Atualiza as páginas que carregam dados na montagem.
     window.location.reload();
   }
 
@@ -138,9 +143,7 @@ export function AppLayout() {
     ].join(" ");
 
   const mutedTextClassName = isDark ? "!text-gray-400" : "!text-gray-500";
-
   const dividerClassName = isDark ? "border-gray-700" : "border-gray-200";
-
   const themeContainerClassName = isDark ? "bg-gray-800" : "bg-gray-100";
 
   const themeButtonClassName = isDark
@@ -150,6 +153,9 @@ export function AppLayout() {
   const logoutButtonClassName = isDark
     ? "border-gray-700 !text-red-300 hover:!bg-gray-800"
     : "border-gray-200 !text-red-700 hover:!bg-red-50";
+
+  const showAdministrationSection =
+    isDemoMode || canManagePlatform || canAccessCatalogReview;
 
   return (
     <div className="flex min-h-screen min-w-0 flex-col md:grid md:grid-cols-[16rem_minmax(0,1fr)]">
@@ -312,26 +318,29 @@ export function AppLayout() {
                         )}
                       </button>
 
-                      <NavLink
-                        to={`/organizations/${organization.id}`}
-                        onClick={closeMenu}
-                        className={[
-                          "mt-1 block rounded-md px-2 py-2 text-xs",
-                          "font-medium no-underline transition-colors",
-                          isDark
-                            ? "!text-gray-300 hover:!bg-gray-800"
-                            : "!text-gray-600 hover:!bg-gray-100",
-                        ].join(" ")}
-                      >
-                        Gerenciar empresa
-                      </NavLink>
+                      {(membership.role === "OWNER" ||
+                        membership.role === "ADMIN") && (
+                        <NavLink
+                          to={`/organizations/${organization.id}`}
+                          onClick={closeMenu}
+                          className={[
+                            "mt-1 block rounded-md px-2 py-2 text-xs",
+                            "font-medium no-underline transition-colors",
+                            isDark
+                              ? "!text-gray-300 hover:!bg-gray-800"
+                              : "!text-gray-600 hover:!bg-gray-100",
+                          ].join(" ")}
+                        >
+                          Gerenciar empresa
+                        </NavLink>
+                      )}
                     </div>
                   );
                 })}
               </>
             )}
 
-            {(isDemoMode || user?.isPlatformAdmin) && (
+            {showAdministrationSection && (
               <>
                 <div className={`mt-4 border-t pt-4 ${dividerClassName}`}>
                   <p
@@ -341,41 +350,47 @@ export function AppLayout() {
                   </p>
                 </div>
 
-                <NavLink
-                  to={isDemoMode ? "/demo/admin/exercises" : "/admin/exercises"}
-                  className={getNavigationClassName}
-                  onClick={closeMenu}
-                >
-                  Administração
-                </NavLink>
+                {(isDemoMode || canAccessCatalogReview) && (
+                  <NavLink
+                    to={
+                      isDemoMode ? "/demo/admin/exercises" : "/admin/exercises"
+                    }
+                    className={getNavigationClassName}
+                    onClick={closeMenu}
+                  >
+                    Auditoria de Exercícios
+                  </NavLink>
+                )}
 
-                <NavLink
-                  to={isDemoMode ? "/demo/admin/images" : "/admin/images"}
-                  className={getNavigationClassName}
-                  onClick={closeMenu}
-                >
-                  Imagens dos Exercícios
-                </NavLink>
+                {(isDemoMode || canAccessCatalogReview) && (
+                  <NavLink
+                    to={isDemoMode ? "/demo/admin/images" : "/admin/images"}
+                    className={getNavigationClassName}
+                    onClick={closeMenu}
+                  >
+                    Imagens dos Exercícios
+                  </NavLink>
+                )}
 
-                <NavLink
-                  to={
-                    isDemoMode
-                      ? "/demo/admin/organizations"
-                      : "/admin/organizations"
-                  }
-                  className={getNavigationClassName}
-                  onClick={closeMenu}
-                >
-                  Empresas
-                </NavLink>
+                {(isDemoMode || canManagePlatform) && (
+                  <NavLink
+                    to={
+                      isDemoMode
+                        ? "/demo/admin/organizations"
+                        : "/admin/organizations"
+                    }
+                    className={getNavigationClassName}
+                    onClick={closeMenu}
+                  >
+                    Empresas
+                  </NavLink>
+                )}
               </>
             )}
           </nav>
 
           <div className={`mt-8 border-t pt-6 ${dividerClassName}`}>
-            <p
-              className={`mb-3 text-xs font-semibold tracking-wider ${mutedTextClassName}`}
-            >
+            <p className={`mb-3 text-xs font-semibold ${mutedTextClassName}`}>
               APARÊNCIA
             </p>
 
@@ -396,7 +411,7 @@ export function AppLayout() {
                     className={[
                       "flex min-h-12 min-w-0 flex-col items-center justify-center gap-1",
                       "rounded-md border-0 px-1 py-2 text-xs",
-                      "transition-all duration-200 ease-in-out",
+                      "transition-colors duration-200 ease-in-out",
                       "focus-visible:outline-2 focus-visible:outline-offset-2",
                       "focus-visible:outline-green-500",
                       selected
@@ -416,9 +431,7 @@ export function AppLayout() {
           </div>
 
           <div className={`mt-8 border-t pt-6 ${dividerClassName}`}>
-            <p
-              className={`mb-3 text-xs font-semibold tracking-wider ${mutedTextClassName}`}
-            >
+            <p className={`mb-3 text-xs font-semibold ${mutedTextClassName}`}>
               MINHA CONTA
             </p>
 
@@ -448,9 +461,13 @@ export function AppLayout() {
                   </span>
 
                   <span className="min-w-0 break-words leading-relaxed">
-                    {user.isPlatformAdmin
+                    {isPlatformAdmin
                       ? "Administrador da plataforma"
-                      : "Usuário"}
+                      : isPlatformManager
+                        ? "Gestor operacional"
+                        : canReviewExercises
+                          ? "Auditor de exercícios"
+                          : "Usuário"}
                   </span>
                 </div>
               </div>

@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 import { prisma } from '../lib/prisma.js'
 import { AppError } from '../lib/app-error.js'
+import { isPlatformOwner } from '../lib/platform-owner.js'
 
 export const requireOrganizationAdmin: RequestHandler = async (
   req,
@@ -26,10 +27,11 @@ export const requireOrganizationAdmin: RequestHandler = async (
       select: {
         isActive: true,
         isPlatformAdmin: true,
+        isPlatformManager: true,
       },
     })
 
-    if (!user || !user.isActive) {
+    if (!user?.isActive) {
       throw new AppError('Usuário sem acesso ativo.', 403)
     }
 
@@ -41,14 +43,18 @@ export const requireOrganizationAdmin: RequestHandler = async (
       },
     })
 
-    if (!organization || !organization.isActive) {
+    if (!organization?.isActive) {
       throw new AppError(
         'Organização não encontrada ou inativa.',
         404,
       )
     }
 
-    if (user.isPlatformAdmin) {
+    if (
+      isPlatformOwner(userId) ||
+      user.isPlatformAdmin ||
+      user.isPlatformManager
+    ) {
       return next()
     }
 
@@ -67,8 +73,7 @@ export const requireOrganizationAdmin: RequestHandler = async (
       })
 
     if (
-      !membership ||
-      !membership.isActive ||
+      !membership?.isActive ||
       !['OWNER', 'ADMIN'].includes(membership.role)
     ) {
       throw new AppError(

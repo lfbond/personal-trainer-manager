@@ -4,6 +4,7 @@ import type { RequestHandler } from 'express'
 import {
   listOrganizations,
   createOrganization,
+  updateOrganization,
   listOrganizationMembers,
   createOrganizationTrainer,
   updateOrganizationMember,
@@ -13,6 +14,7 @@ import {
   organizationIdParamsSchema,
   organizationMemberParamsSchema,
   createOrganizationSchema,
+  updateOrganizationSchema,
   createOrganizationTrainerSchema,
   updateOrganizationMemberSchema,
 } from '../schemas/organization-management.schema.js'
@@ -31,6 +33,31 @@ export const createOrganizationController: RequestHandler =
     const organization = await createOrganization(data)
 
     res.status(201).json(organization)
+  }
+
+export const updateOrganizationController: RequestHandler =
+  async (req, res) => {
+    const actorUserId = res.locals.userId as string | undefined
+
+    if (!actorUserId) {
+      res.status(401).json({
+        message: 'Usuário não autenticado.',
+      })
+      return
+    }
+
+    const { organizationId } =
+      organizationIdParamsSchema.parse(req.params)
+
+    const data = updateOrganizationSchema.parse(req.body)
+
+    const organization = await updateOrganization({
+      organizationId,
+      actorUserId,
+      ...data,
+    })
+
+    res.status(200).json(organization)
   }
 
 export const listOrganizationMembersController: RequestHandler =
@@ -63,6 +90,15 @@ export const createOrganizationTrainerController: RequestHandler =
 
 export const updateOrganizationMemberController: RequestHandler =
   async (req, res) => {
+    const actorUserId = res.locals.userId as string | undefined
+
+    if (!actorUserId) {
+      res.status(401).json({
+        message: 'Usuário não autenticado.',
+      })
+      return
+    }
+
     const { organizationId, memberId } =
       organizationMemberParamsSchema.parse(req.params)
 
@@ -72,6 +108,7 @@ export const updateOrganizationMemberController: RequestHandler =
     const member = await updateOrganizationMember({
       organizationId,
       memberId,
+      actorUserId,
       ...data,
     })
 

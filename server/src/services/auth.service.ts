@@ -21,6 +21,8 @@ export async function login({ email, password }: LoginInput) {
       passwordHash: true,
       isActive: true,
       isPlatformAdmin: true,
+      isPlatformManager: true,
+      canReviewExercises: true,
     },
   })
 
@@ -48,6 +50,8 @@ export async function login({ email, password }: LoginInput) {
       name: user.name,
       email: user.email,
       isPlatformAdmin: user.isPlatformAdmin,
+      isPlatformManager: user.isPlatformManager,
+      canReviewExercises: user.canReviewExercises,
     },
   }
 }

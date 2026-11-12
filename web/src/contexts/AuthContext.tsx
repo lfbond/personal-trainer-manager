@@ -22,6 +22,17 @@ function clearStoredSession() {
   sessionStorage.removeItem(SESSION_KEY);
 }
 
+function normalizeUser(user: AuthUser): AuthUser {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    isPlatformAdmin: user.isPlatformAdmin === true,
+    isPlatformManager: user.isPlatformManager === true,
+    canReviewExercises: user.canReviewExercises === true,
+  };
+}
+
 function readStoredSession(): StoredSession | null {
   try {
     const rawSession = sessionStorage.getItem(SESSION_KEY);
@@ -67,7 +78,7 @@ function readStoredSession(): StoredSession | null {
     return {
       accessToken: session.accessToken,
       expiresAt: session.expiresAt,
-      user,
+      user: normalizeUser(user),
     };
   } catch {
     clearStoredSession();
@@ -77,7 +88,6 @@ function readStoredSession(): StoredSession | null {
 
 const initialSession = readStoredSession();
 
-// Configura o token antes da montagem das páginas protegidas.
 setApiAccessToken(initialSession?.accessToken ?? null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -101,21 +111,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const { accessToken, expiresIn, user } = response.data;
 
+    const normalizedUser = normalizeUser(user);
     const expiresAt = Date.now() + expiresIn * 1000;
 
     const session: StoredSession = {
       accessToken,
       expiresAt,
-      user,
+      user: normalizedUser,
     };
 
-    // sessionStorage mantém a sessão durante recarregamentos
-    // na mesma aba e a encerra quando a aba é fechada.
     sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
 
     setApiAccessToken(accessToken);
     setAccessToken(accessToken);
-    setUser(user);
+    setUser(normalizedUser);
   }
 
   const signOut = useCallback(() => {
