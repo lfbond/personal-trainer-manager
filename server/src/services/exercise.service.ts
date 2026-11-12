@@ -1,6 +1,7 @@
 
 import { prisma } from '../lib/prisma.js'
 import { AppError } from '../lib/app-error.js'
+import { isPlatformOwner } from '../lib/platform-owner.js'
 import { verifyTrainerAccess } from './student.service.js'
 
 import type {
@@ -16,7 +17,7 @@ import type {
 } from '../generated/prisma/client.js'
 
 // ============================================================
-// CONTROLE DE ACESSO
+// CONTROLE DE ACESSO DOS TREINADORES
 // ============================================================
 
 async function ensureTrainerAccess(
@@ -36,31 +37,40 @@ async function ensureTrainerAccess(
   }
 }
 
+// ============================================================
+// CONTROLE DE ACESSO À AUDITORIA GLOBAL
+// ============================================================
 
-async function ensureCatalogAdminAccess(
-  trainerId: string,
-  organizationId: string,
+// A auditoria do catálogo não depende de organização
+// selecionada nem de vínculo administrativo local.
+//
+// Podem auditar:
+// - Proprietário técnico da plataforma;
+// - Administradores globais;
+// - Usuários com canReviewExercises = true.
+//
+// Gestores globais não recebem automaticamente a permissão
+// de auditoria, salvo se também possuírem uma das permissões
+// acima.
+
+async function ensureCatalogReviewerAccess(
+  userId: string,
 ) {
-  await ensureTrainerAccess(trainerId, organizationId)
-
-  const trainer = await prisma.trainer.findUnique({
-    where: { id: trainerId },
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
     select: {
-      user: {
-        select: {
-          isPlatformAdmin: true,
-          canReviewExercises: true,
-          isActive: true,
-        },
-      },
+      isActive: true,
+      isPlatformAdmin: true,
+      canReviewExercises: true,
     },
   })
 
   if (
-    !trainer?.user.isActive ||
+    !user?.isActive ||
     !(
-      trainer.user.isPlatformAdmin ||
-      trainer.user.canReviewExercises
+      isPlatformOwner(userId) ||
+      user.isPlatformAdmin ||
+      user.canReviewExercises
     )
   ) {
     throw new AppError(
@@ -69,7 +79,6 @@ async function ensureCatalogAdminAccess(
     )
   }
 }
-
 
 // ============================================================
 // LISTAGEM DE EXERCÍCIOS
@@ -107,14 +116,12 @@ export async function listExercises({
       ...(filters?.muscleGroup && {
         muscleGroup: filters.muscleGroup,
       }),
-
       ...(filters?.search && {
         name: {
           contains: filters.search,
           mode: 'insensitive',
         },
       }),
-
       ...(filters?.category || filters?.level
         ? {
             variations: {
@@ -123,13 +130,11 @@ export async function listExercises({
           }
         : {}),
     },
-
     include: {
       variations: {
         where: variationFilter,
       },
     },
-
     orderBy: {
       name: 'asc',
     },
@@ -382,8 +387,7 @@ export async function deleteExerciseVariation({
 type ReviewStatus = ExerciseImageStatus
 
 interface ImageReviewAccess {
-  trainerId: string
-  organizationId: string
+  userId: string
 }
 
 interface ListImageReviewsParams
@@ -468,18 +472,14 @@ function imageReviewData(
 // ============================================================
 
 export async function listExerciseImageReviews({
-  trainerId,
-  organizationId,
+  userId,
   status,
   onlyWithoutImage = false,
   search,
   take = 50,
   skip = 0,
 }: ListImageReviewsParams) {
-  await ensureCatalogAdminAccess(
-    trainerId,
-    organizationId,
-  )
+  await ensureCatalogReviewerAccess(userId)
 
   if (
     status &&
@@ -584,16 +584,12 @@ export async function listExerciseImageReviews({
 // ============================================================
 
 export async function reviewExerciseImage({
-  trainerId,
-  organizationId,
+  userId,
   variationId,
   status,
   notes,
 }: ReviewImageParams) {
-  await ensureCatalogAdminAccess(
-    trainerId,
-    organizationId,
-  )
+  await ensureCatalogReviewerAccess(userId)
 
   validateImageReview(status, notes)
 
@@ -654,16 +650,12 @@ export async function reviewExerciseImage({
 // ============================================================
 
 export async function reviewExerciseImagesBatch({
-  trainerId,
-  organizationId,
+  userId,
   variationIds,
   status,
   notes,
 }: BatchReviewImagesParams) {
-  await ensureCatalogAdminAccess(
-    trainerId,
-    organizationId,
-  )
+  await ensureCatalogReviewerAccess(userId)
 
   validateImageReview(status, notes)
 

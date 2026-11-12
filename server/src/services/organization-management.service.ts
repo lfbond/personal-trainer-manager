@@ -12,6 +12,14 @@ interface CreateOrganizationInput {
   ownerUserId: string
 }
 
+interface UpdateOrganizationInput {
+  organizationId: string
+  actorUserId: string
+  name?: string
+  slug?: string
+  isActive?: boolean
+}
+
 interface CreateTrainerInput {
   organizationId: string
   name: string
@@ -120,6 +128,143 @@ export async function createOrganization({
         trainerId: trainer.id,
       },
     }
+  })
+}
+
+export async function updateOrganization({
+  organizationId,
+  actorUserId,
+  name,
+  slug,
+  isActive,
+}: UpdateOrganizationInput) {
+  if (
+    name === undefined &&
+    slug === undefined &&
+    isActive === undefined
+  ) {
+    throw new AppError(
+      'Informe pelo menos um campo para atualização.',
+      400,
+    )
+  }
+
+  const actor = await prisma.user.findUnique({
+    where: { id: actorUserId },
+    select: {
+      isActive: true,
+      isPlatformAdmin: true,
+      isPlatformManager: true,
+    },
+  })
+
+  if (!actor?.isActive) {
+    throw new AppError('Usuário sem acesso ativo.', 403)
+  }
+
+  const actorIsTechnicalOwner = isPlatformOwner(actorUserId)
+
+  if (
+    !actorIsTechnicalOwner &&
+    !actor.isPlatformAdmin &&
+    !actor.isPlatformManager
+  ) {
+    throw new AppError(
+      'Acesso restrito à gestão global da plataforma.',
+      403,
+    )
+  }
+
+  const normalizedName = name?.trim()
+  const normalizedSlug = slug?.trim().toLowerCase()
+
+  if (normalizedName !== undefined && !normalizedName) {
+    throw new AppError('Nome da organização inválido.', 400)
+  }
+
+  if (normalizedSlug !== undefined && !normalizedSlug) {
+    throw new AppError(
+      'Identificador da organização inválido.',
+      400,
+    )
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const organization = await tx.organization.findUnique({
+      where: { id: organizationId },
+      select: {
+        id: true,
+        slug: true,
+        isActive: true,
+        members: {
+          select: {
+            userId: true,
+            user: {
+              select: {
+                isPlatformAdmin: true,
+              },
+            },
+          },
+        },
+      },
+    })
+
+    if (!organization) {
+      throw new AppError('Organização não encontrada.', 404)
+    }
+
+    if (
+      !actorIsTechnicalOwner &&
+      isActive === false &&
+      organization.members.some(
+        (member) =>
+          isPlatformOwner(member.userId) ||
+          member.user.isPlatformAdmin,
+      )
+    ) {
+      throw new AppError(
+        'Esta organização possui uma conta técnica protegida e não pode ser desativada por um gestor operacional.',
+        403,
+      )
+    }
+
+    if (
+      normalizedSlug !== undefined &&
+      normalizedSlug !== organization.slug
+    ) {
+      const existing = await tx.organization.findUnique({
+        where: { slug: normalizedSlug },
+        select: { id: true },
+      })
+
+      if (existing && existing.id !== organizationId) {
+        throw new AppError(
+          'Já existe uma organização com este identificador.',
+          409,
+        )
+      }
+    }
+
+    return tx.organization.update({
+      where: { id: organizationId },
+      data: {
+        ...(normalizedName !== undefined && {
+          name: normalizedName,
+        }),
+        ...(normalizedSlug !== undefined && {
+          slug: normalizedSlug,
+        }),
+        ...(isActive !== undefined && { isActive }),
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    })
   })
 }
 
@@ -280,7 +425,12 @@ export async function updateOrganizationMember({
     throw new AppError('Usuário sem acesso ativo.', 403)
   }
 
-  const actorIsOwner = isPlatformOwner(actorUserId)
+  const actorIsTechnicalOwner = isPlatformOwner(actorUserId)
+
+  const actorHasGlobalPermission =
+    actorIsTechnicalOwner ||
+    actor.isPlatformAdmin ||
+    actor.isPlatformManager
 
   return prisma.$transaction(async (tx) => {
     const membership = await tx.organizationMember.findFirst({
@@ -302,10 +452,7 @@ export async function updateOrganizationMember({
     })
 
     if (!membership) {
-      throw new AppError(
-        'Membro não encontrado.',
-        404,
-      )
+      throw new AppError('Membro não encontrado.', 404)
     }
 
     if (membership.role === 'OWNER') {
@@ -315,11 +462,11 @@ export async function updateOrganizationMember({
       )
     }
 
-    const targetIsOwner = isPlatformOwner(
+    const targetIsTechnicalOwner = isPlatformOwner(
       membership.userId,
     )
 
-    if (targetIsOwner && !actorIsOwner) {
+    if (targetIsTechnicalOwner) {
       throw new AppError(
         'A conta do proprietário técnico está protegida.',
         403,
@@ -327,7 +474,7 @@ export async function updateOrganizationMember({
     }
 
     if (
-      !actorIsOwner &&
+      !actorIsTechnicalOwner &&
       membership.user.isPlatformAdmin
     ) {
       throw new AppError(
@@ -337,15 +484,52 @@ export async function updateOrganizationMember({
     }
 
     if (
-      !actorIsOwner &&
-      actor.isPlatformManager &&
-      membership.user.isPlatformManager &&
-      membership.userId !== actorUserId
+      !actorIsTechnicalOwner &&
+      membership.user.isPlatformManager
     ) {
       throw new AppError(
-        'A alteração de outro gestor global exige autorização do proprietário técnico.',
+        'A alteração de um gestor global exige autorização do proprietário técnico.',
         403,
       )
+    }
+
+    if (!actorHasGlobalPermission) {
+      const actorMembership =
+        await tx.organizationMember.findUnique({
+          where: {
+            organizationId_userId: {
+              organizationId,
+              userId: actorUserId,
+            },
+          },
+          select: {
+            role: true,
+            isActive: true,
+          },
+        })
+
+      if (
+        !actorMembership?.isActive ||
+        !['OWNER', 'ADMIN'].includes(actorMembership.role)
+      ) {
+        throw new AppError(
+          'Acesso restrito à administração da organização.',
+          403,
+        )
+      }
+
+      if (
+        actorMembership.role === 'ADMIN' &&
+        (
+          membership.role !== 'TRAINER' ||
+          role !== undefined
+        )
+      ) {
+        throw new AppError(
+          'Administradores locais podem ativar ou desativar professores, mas não alterar permissões administrativas.',
+          403,
+        )
+      }
     }
 
     const result = await tx.organizationMember.updateMany({

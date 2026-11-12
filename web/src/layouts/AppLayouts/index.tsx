@@ -362,7 +362,7 @@ export function AppLayout() {
                   </NavLink>
                 )}
 
-                {(isDemoMode || isPlatformAdmin) && (
+                {(isDemoMode || canAccessCatalogReview) && (
                   <NavLink
                     to={isDemoMode ? "/demo/admin/images" : "/admin/images"}
                     className={getNavigationClassName}

@@ -1,5 +1,7 @@
+
 import { prisma } from '../lib/prisma.js'
 import { AppError } from '../lib/app-error.js'
+import { isPlatformOwner } from '../lib/platform-owner.js'
 import { getRequestedOrganizationId } from '../lib/organization-request-context.js'
 
 export async function getTrainerContext(
@@ -73,5 +75,45 @@ export async function getTrainerContext(
   return {
     trainerId: user.trainer.id,
     organizationId: memberships[0]!.organizationId,
+  }
+}
+
+// ============================================================
+// CONTEXTO DE AUDITORIA GLOBAL DO CATÁLOGO
+// ============================================================
+
+// A auditoria é independente da organização selecionada.
+// Esta função não concede acesso a alunos, fichas ou dados
+// de outras organizações.
+
+export async function getCatalogReviewerContext(
+  userId: string,
+) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      isActive: true,
+      isPlatformAdmin: true,
+      canReviewExercises: true,
+    },
+  })
+
+  if (!user?.isActive) {
+    throw new AppError('Usuário sem acesso ativo.', 403)
+  }
+
+  if (
+    !isPlatformOwner(userId) &&
+    !user.isPlatformAdmin &&
+    !user.canReviewExercises
+  ) {
+    throw new AppError(
+      'Acesso restrito aos revisores autorizados do catálogo.',
+      403,
+    )
+  }
+
+  return {
+    userId,
   }
 }
