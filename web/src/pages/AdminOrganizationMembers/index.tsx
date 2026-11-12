@@ -4,87 +4,24 @@ import { AxiosError } from "axios";
 import { Link, useParams } from "react-router-dom";
 
 import {
-  createTrainer,
   getOrganizationMembers,
   updateOrganizationMember,
   type OrganizationMember,
 } from "../../services/organization-management.service";
 
+import {
+  buildInvitationUrl,
+  createOrganizationInvitation,
+} from "../../services/organization-invitations.service";
+
 type EditableRole = "ADMIN" | "TRAINER";
 
-const weakSequences = [
-  "123456",
-  "234567",
-  "345678",
-  "456789",
-  "987654",
-  "876543",
-  "765432",
-  "654321",
-  "abcdef",
-  "bcdefg",
-  "fedcba",
-  "qwerty",
-  "asdfgh",
-  "zxcvbn",
-  "password",
-  "senha123",
-  "admin123",
-];
-
-function normalizeText(value: string): string {
-  return value
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
-}
-
-function validatePassword(password: string, name: string, email: string) {
-  const normalizedPassword = normalizeText(password);
-
-  const nameParts = normalizeText(name)
-    .trim()
-    .split(/\s+/)
-    .filter((part) => part.length >= 3);
-
-  const emailLocalPart = email.trim().toLowerCase().split("@")[0];
-
-  const forbiddenTerms = [...nameParts, emailLocalPart].filter(
-    (term) => term.length >= 3,
-  );
-
-  return [
-    {
-      label: "Entre 12 e 72 caracteres",
-      valid: password.length >= 12 && password.length <= 72,
-    },
-    {
-      label: "Pelo menos uma letra maiúscula",
-      valid: /[A-Z]/.test(password),
-    },
-    {
-      label: "Pelo menos uma letra minúscula",
-      valid: /[a-z]/.test(password),
-    },
-    {
-      label: "Pelo menos um número",
-      valid: /[0-9]/.test(password),
-    },
-    {
-      label: "Pelo menos um caractere especial",
-      valid: /[^A-Za-z0-9]/.test(password),
-    },
-    {
-      label: "Sem sequências ou senhas previsíveis",
-      valid: !weakSequences.some((sequence) =>
-        normalizedPassword.includes(sequence),
-      ),
-    },
-    {
-      label: "Sem partes do nome ou e-mail",
-      valid: !forbiddenTerms.some((term) => normalizedPassword.includes(term)),
-    },
-  ];
+interface GeneratedInvitation {
+  email: string;
+  organization: string;
+  role: EditableRole;
+  expiresAt: string;
+  url: string;
 }
 
 function getErrorMessage(error: unknown): string {
@@ -98,7 +35,11 @@ function getErrorMessage(error: unknown): string {
       | undefined;
 
     if (error.response?.status === 403) {
-      return "Você não possui permissão para realizar esta operação.";
+      return (
+        "Você não possui permissão para realizar esta operação. " +
+        "Nesta versão, a emissão de convites é exclusiva " +
+        "do proprietário da plataforma."
+      );
     }
 
     const validationMessages = data?.issues ?? data?.errors;
@@ -113,10 +54,14 @@ function getErrorMessage(error: unknown): string {
     return data?.message ?? "Não foi possível concluir a operação.";
   }
 
+  if (error instanceof Error) {
+    return error.message;
+  }
+
   return "Ocorreu um erro inesperado.";
 }
 
-function roleLabel(role: OrganizationMember["role"]) {
+function roleLabel(role: OrganizationMember["role"]): string {
   const labels = {
     OWNER: "Proprietário",
     ADMIN: "Administrador",
@@ -132,6 +77,7 @@ export function AdminOrganizationMembers() {
   }>();
 
   const [members, setMembers] = useState<OrganizationMember[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -140,26 +86,14 @@ export function AdminOrganizationMembers() {
   const [success, setSuccess] = useState("");
   const [accessDenied, setAccessDenied] = useState(false);
 
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState<EditableRole>("TRAINER");
 
-  const passwordRules = validatePassword(password, name, email);
-  const passwordValid = passwordRules.every((rule) => rule.valid);
-
-  const passwordsMatch =
-    confirmPassword.length > 0 && password === confirmPassword;
+  const [generatedInvitation, setGeneratedInvitation] =
+    useState<GeneratedInvitation | null>(null);
 
   const canSubmit =
-    name.trim().length >= 2 &&
-    email.trim().length > 0 &&
-    passwordValid &&
-    passwordsMatch &&
-    !saving &&
-    !loading;
+    Boolean(organizationId) && email.trim().length > 0 && !saving && !loading;
 
   const loadMembers = useCallback(async () => {
     if (!organizationId) {
@@ -231,18 +165,17 @@ export function AdminOrganizationMembers() {
     };
   }, [organizationId]);
 
-  async function handleCreateTrainer(event: FormEvent<HTMLFormElement>) {
+  async function handleCreateInvitation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!organizationId || saving) return;
-
-    if (!passwordValid) {
-      setError("A senha não atende aos requisitos de segurança.");
+    if (!organizationId || saving) {
       return;
     }
 
-    if (!passwordsMatch) {
-      setError("As senhas informadas não coincidem.");
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail) {
+      setError("Informe o e-mail do profissional.");
       return;
     }
 
@@ -250,24 +183,32 @@ export function AdminOrganizationMembers() {
       setSaving(true);
       setError("");
       setSuccess("");
+      setGeneratedInvitation(null);
 
-      await createTrainer(organizationId, {
-        name: name.trim(),
-        email: email.trim().toLowerCase(),
-        password,
+      const invitation = await createOrganizationInvitation({
+        organizationId,
+        email: normalizedEmail,
         role,
       });
 
-      setName("");
+      const invitationUrl = buildInvitationUrl(invitation.token);
+
+      setGeneratedInvitation({
+        email: invitation.email,
+        organization: invitation.organization,
+        role: invitation.role,
+        expiresAt: invitation.expiresAt,
+        url: invitationUrl,
+      });
+
       setEmail("");
-      setPassword("");
-      setConfirmPassword("");
-      setShowPassword(false);
       setRole("TRAINER");
 
-      await loadMembers();
-
-      setSuccess("Profissional cadastrado com sucesso.");
+      setSuccess(
+        "Convite gerado com sucesso. " +
+          "Compartilhe o link de forma privada com o destinatário. " +
+          "O convite ainda não foi enviado por e-mail.",
+      );
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
@@ -275,12 +216,35 @@ export function AdminOrganizationMembers() {
     }
   }
 
+  async function handleCopyInvitation() {
+    if (!generatedInvitation) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(generatedInvitation.url);
+
+      setError("");
+      setSuccess("Link copiado para a área de transferência.");
+    } catch {
+      setError(
+        "Não foi possível copiar automaticamente. " +
+          "Selecione o link exibido e copie manualmente.",
+      );
+    }
+  }
+
   async function handleChangeRole(
     member: OrganizationMember,
     nextRole: EditableRole,
   ) {
-    if (!organizationId || member.role === "OWNER") return;
-    if (member.role === nextRole) return;
+    if (!organizationId || member.role === "OWNER") {
+      return;
+    }
+
+    if (member.role === nextRole) {
+      return;
+    }
 
     try {
       setUpdatingId(member.id);
@@ -302,7 +266,9 @@ export function AdminOrganizationMembers() {
   }
 
   async function handleToggleStatus(member: OrganizationMember) {
-    if (!organizationId || member.role === "OWNER") return;
+    if (!organizationId || member.role === "OWNER") {
+      return;
+    }
 
     const action = member.isActive ? "desativar" : "ativar";
 
@@ -334,7 +300,9 @@ export function AdminOrganizationMembers() {
   }
 
   const inputClass =
-    "w-full rounded-lg border border-slate-300 bg-white p-3 text-sm text-slate-900 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white";
+    "w-full rounded-lg border border-slate-300 bg-white p-3 " +
+    "text-sm text-slate-900 outline-none focus:border-blue-500 " +
+    "dark:border-slate-700 dark:bg-slate-800 dark:text-white";
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
@@ -352,7 +320,8 @@ export function AdminOrganizationMembers() {
           </h1>
 
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Gerencie os profissionais e os vínculos desta organização.
+            Gerencie profissionais, convites de primeiro acesso e vínculos desta
+            organização.
           </p>
         </div>
       </header>
@@ -378,31 +347,21 @@ export function AdminOrganizationMembers() {
       {!accessDenied && (
         <>
           <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-white">
-              Cadastrar profissional
+            <h2 className="mb-2 text-lg font-semibold text-slate-900 dark:text-white">
+              Convidar profissional
             </h2>
 
+            <p className="mb-5 text-sm text-slate-500 dark:text-slate-400">
+              O profissional definirá seu próprio nome e sua senha na página de
+              ativação. Você não precisa conhecer nem criar a senha dele.
+            </p>
+
             <form
-              onSubmit={handleCreateTrainer}
+              onSubmit={handleCreateInvitation}
               className="grid gap-4 md:grid-cols-2"
             >
               <label className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
-                <span>Nome completo</span>
-
-                <input
-                  required
-                  minLength={2}
-                  maxLength={120}
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  className={inputClass}
-                  placeholder="Nome do profissional"
-                  autoComplete="name"
-                />
-              </label>
-
-              <label className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
-                <span>E-mail</span>
+                <span>E-mail do profissional</span>
 
                 <input
                   required
@@ -412,109 +371,12 @@ export function AdminOrganizationMembers() {
                   className={inputClass}
                   placeholder="professor@exemplo.com"
                   autoComplete="email"
+                  maxLength={254}
                 />
               </label>
 
-              <div className="space-y-3 md:col-span-2">
-                <label
-                  htmlFor="new-professional-password"
-                  className="block text-sm text-slate-700 dark:text-slate-300"
-                >
-                  Senha inicial
-                </label>
-
-                <div className="flex gap-2">
-                  <input
-                    id="new-professional-password"
-                    required
-                    type={showPassword ? "text" : "password"}
-                    minLength={12}
-                    maxLength={72}
-                    autoComplete="new-password"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    className={inputClass}
-                    placeholder="Crie uma senha forte"
-                    aria-describedby="password-requirements"
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword((value) => !value)}
-                    className="shrink-0 rounded-lg border border-slate-300 px-4 py-2 text-sm text-slate-700 dark:border-slate-700 dark:text-slate-200"
-                    aria-label={
-                      showPassword ? "Ocultar senha" : "Mostrar senha"
-                    }
-                    aria-pressed={showPassword}
-                  >
-                    {showPassword ? "Ocultar" : "Mostrar"}
-                  </button>
-                </div>
-
-                <div
-                  id="password-requirements"
-                  className="rounded-lg border border-slate-200 p-4 dark:border-slate-700"
-                >
-                  <p className="mb-3 text-sm font-medium text-slate-700 dark:text-slate-200">
-                    Requisitos de segurança
-                  </p>
-
-                  <ul className="grid gap-2 sm:grid-cols-2">
-                    {passwordRules.map((rule) => (
-                      <li
-                        key={rule.label}
-                        className={`flex items-start gap-2 text-xs ${
-                          password.length === 0
-                            ? "text-slate-500 dark:text-slate-400"
-                            : rule.valid
-                              ? "text-green-700 dark:text-green-400"
-                              : "text-red-600 dark:text-red-400"
-                        }`}
-                      >
-                        <span aria-hidden="true">
-                          {password.length === 0 ? "○" : rule.valid ? "✓" : "×"}
-                        </span>
-
-                        <span>{rule.label}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-
               <label className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
-                <span>Confirmar senha</span>
-
-                <input
-                  required
-                  type={showPassword ? "text" : "password"}
-                  minLength={12}
-                  maxLength={72}
-                  autoComplete="new-password"
-                  value={confirmPassword}
-                  onChange={(event) => setConfirmPassword(event.target.value)}
-                  className={inputClass}
-                  placeholder="Repita a senha"
-                  aria-invalid={confirmPassword.length > 0 && !passwordsMatch}
-                />
-
-                {confirmPassword.length > 0 && (
-                  <p
-                    className={`text-xs ${
-                      passwordsMatch
-                        ? "text-green-700 dark:text-green-400"
-                        : "text-red-600 dark:text-red-400"
-                    }`}
-                  >
-                    {passwordsMatch
-                      ? "As senhas coincidem."
-                      : "As senhas não coincidem."}
-                  </p>
-                )}
-              </label>
-
-              <label className="space-y-1 text-sm text-slate-700 dark:text-slate-300">
-                <span>Perfil de acesso</span>
+                <span>Perfil na organização</span>
 
                 <select
                   value={role}
@@ -524,7 +386,7 @@ export function AdminOrganizationMembers() {
                   className={inputClass}
                 >
                   <option value="TRAINER">Professor</option>
-                  <option value="ADMIN">Administrador</option>
+                  <option value="ADMIN">Administrador da organização</option>
                 </select>
               </label>
 
@@ -534,11 +396,94 @@ export function AdminOrganizationMembers() {
                   disabled={!canSubmit}
                   className="rounded-lg bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {saving ? "Cadastrando..." : "Cadastrar profissional"}
+                  {saving
+                    ? "Gerando convite..."
+                    : "Gerar convite de primeiro acesso"}
                 </button>
               </div>
             </form>
+
+            <p className="mt-4 text-xs text-slate-500 dark:text-slate-400">
+              Nesta versão, apenas o proprietário da plataforma pode emitir
+              convites. O link expira em 48 horas e permite uma única ativação.
+            </p>
           </section>
+
+          {generatedInvitation && (
+            <section className="rounded-xl border border-blue-200 bg-blue-50 p-5 shadow-sm dark:border-blue-900 dark:bg-slate-900">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                Convite gerado
+              </h2>
+
+              <div className="mt-3 space-y-2 text-sm text-slate-700 dark:text-slate-300">
+                <p>
+                  <strong>Destinatário:</strong> {generatedInvitation.email}
+                </p>
+
+                <p>
+                  <strong>Organização:</strong>{" "}
+                  {generatedInvitation.organization}
+                </p>
+
+                <p>
+                  <strong>Perfil:</strong>{" "}
+                  {generatedInvitation.role === "ADMIN"
+                    ? "Administrador da organização"
+                    : "Professor"}
+                </p>
+
+                <p>
+                  <strong>Validade:</strong>{" "}
+                  {new Date(generatedInvitation.expiresAt).toLocaleString(
+                    "pt-BR",
+                  )}
+                </p>
+              </div>
+
+              <label className="mt-5 block space-y-2">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  Link privado de ativação
+                </span>
+
+                <textarea
+                  readOnly
+                  rows={3}
+                  value={generatedInvitation.url}
+                  onFocus={(event) => event.target.select()}
+                  className={`${inputClass} resize-none break-all`}
+                  aria-label="Link privado de ativação"
+                />
+              </label>
+
+              <div className="mt-4 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => void handleCopyInvitation()}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                >
+                  Copiar link
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGeneratedInvitation(null);
+                    setSuccess("");
+                  }}
+                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 dark:border-slate-700 dark:text-slate-200"
+                >
+                  Ocultar link
+                </button>
+              </div>
+
+              <p className="mt-4 text-xs text-amber-800 dark:text-amber-300">
+                Atenção: qualquer pessoa com esse link poderá ativar a conta
+                enquanto o convite estiver válido. Compartilhe-o apenas por um
+                canal privado e confiável. O sistema ainda não envia o convite
+                automaticamente por e-mail.
+              </p>
+            </section>
+          )}
 
           <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -556,7 +501,7 @@ export function AdminOrganizationMembers() {
                 type="button"
                 onClick={() => void loadMembers()}
                 disabled={loading}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 dark:border-slate-700 dark:text-slate-200"
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200"
               >
                 Atualizar
               </button>

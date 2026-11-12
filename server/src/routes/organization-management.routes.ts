@@ -4,7 +4,7 @@ import { Router } from 'express'
 import { prisma } from '../lib/prisma.js'
 
 import { requireAuth } from '../middlewares/auth.middleware.js'
-import { requirePlatformAdmin } from '../middlewares/platform-admin.middleware.js'
+import { requirePlatformManager } from '../middlewares/platform-manager.middleware.js'
 import { requireOrganizationAdmin } from '../middlewares/organization-admin.middleware.js'
 import { requireOrganizationOwner } from '../middlewares/organization-owner.middleware.js'
 
@@ -23,7 +23,7 @@ import {
 export const platformOrganizationRoutes = Router()
 
 platformOrganizationRoutes.use(requireAuth)
-platformOrganizationRoutes.use(requirePlatformAdmin)
+platformOrganizationRoutes.use(requirePlatformManager)
 
 platformOrganizationRoutes.get(
   '/eligible-owners',

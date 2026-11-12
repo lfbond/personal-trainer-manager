@@ -2,7 +2,8 @@
 import { Router } from 'express'
 
 import { requireAuth } from '../middlewares/auth.middleware.js'
-import { requirePlatformAdmin } from '../middlewares/platform-admin.middleware.js'
+import { requirePlatformOwner } from '../middlewares/platform-owner.middleware.js'
+import { requireCatalogReviewer } from '../middlewares/catalog-review.middleware.js'
 
 import {
   listPendingGlobalVariationsController,
@@ -13,31 +14,36 @@ import {
 
 export const platformAdminRoutes = Router()
 
-// Todas as rotas exigem autenticação JWT.
 platformAdminRoutes.use(requireAuth)
 
-// Somente administradores globais podem acessar estas rotas.
-platformAdminRoutes.use(requirePlatformAdmin)
-
-// Listar variações globais pendentes de revisão.
+// Consulta das variações pendentes.
+// Permitida ao fundador e aos revisores autorizados.
 platformAdminRoutes.get(
   '/exercise-variations',
+  requireCatalogReviewer,
   listPendingGlobalVariationsController,
 )
 
+// Prévia da aprovação em massa.
+// Permitida ao fundador e aos revisores autorizados.
 platformAdminRoutes.get(
   '/exercise-variations/bulk-preview',
+  requireCatalogReviewer,
   previewBulkApprovalController,
 )
 
-platformAdminRoutes.post(
-  '/exercise-variations/bulk-approve',
-  approveEligibleGlobalVariationsController,
-)
-
-// Aprovar ou rejeitar uma variação global.
+// Revisão individual de exercícios.
+// Permitida ao fundador e aos revisores autorizados.
 platformAdminRoutes.patch(
   '/exercise-variations/:id/status',
+  requireCatalogReviewer,
   reviewGlobalVariationController,
 )
 
+// Aprovação em massa.
+// Operação exclusiva do fundador da plataforma.
+platformAdminRoutes.post(
+  '/exercise-variations/bulk-approve',
+  requirePlatformOwner,
+  approveEligibleGlobalVariationsController,
+)

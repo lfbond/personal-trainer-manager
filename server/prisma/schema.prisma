@@ -183,6 +183,7 @@ model Organization {
   students            Student[]
   workouts            Workout[]
   physicalAssessments PhysicalAssessment[]
+  invitations         OrganizationInvitation[]
 }
 
 model OrganizationMember {
@@ -201,6 +202,22 @@ model OrganizationMember {
   @@index([userId])
 }
 
+model OrganizationInvitation {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @db.Uuid
+  email          String
+  role           OrganizationRole
+  tokenHash      String           @unique
+  expiresAt      DateTime
+  acceptedAt     DateTime?
+  createdAt      DateTime         @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, email])
+  @@index([expiresAt])
+}
+
 model User {
   id           String   @id @default(uuid()) @db.Uuid
   name         String
@@ -212,6 +229,12 @@ model User {
   // Permissão administrativa global da plataforma.
   // Não depende do papel do usuário na organização.
   isPlatformAdmin Boolean @default(false)
+
+  // Gestao operacional global, sem privilegios tecnicos.
+  isPlatformManager Boolean @default(false)
+
+  // Permissão para revisão técnica do catálogo global.
+  canReviewExercises Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

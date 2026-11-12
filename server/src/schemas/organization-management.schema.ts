@@ -23,7 +23,7 @@ const weakSequences = [
   'admin123',
 ]
 
-const strongPasswordSchema = z
+export const strongPasswordSchema = z
   .string()
   .min(12, 'A senha deve ter pelo menos 12 caracteres.')
   .max(72, 'A senha deve ter no máximo 72 caracteres.')

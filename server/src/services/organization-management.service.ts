@@ -2,6 +2,7 @@
 import { prisma } from '../lib/prisma.js'
 import { AppError } from '../lib/app-error.js'
 import { hashPassword } from '../lib/password.js'
+import { isPlatformOwner } from '../lib/platform-owner.js'
 
 type OrganizationRole = 'OWNER' | 'ADMIN' | 'TRAINER'
 
@@ -22,6 +23,7 @@ interface CreateTrainerInput {
 interface UpdateMemberInput {
   organizationId: string
   memberId: string
+  actorUserId: string
   isActive?: boolean
   role?: OrganizationRole
 }
@@ -76,10 +78,11 @@ export async function createOrganization({
     )
   }
 
-  const existingOrganization = await prisma.organization.findUnique({
-    where: { slug: normalizedSlug },
-    select: { id: true },
-  })
+  const existingOrganization =
+    await prisma.organization.findUnique({
+      where: { slug: normalizedSlug },
+      select: { id: true },
+    })
 
   if (existingOrganization) {
     throw new AppError(
@@ -181,7 +184,7 @@ export async function createOrganizationTrainer({
     select: { id: true, isActive: true },
   })
 
-  if (!organization || !organization.isActive) {
+  if (!organization?.isActive) {
     throw new AppError(
       'Organização não encontrada ou inativa.',
       404,
@@ -209,6 +212,9 @@ export async function createOrganizationTrainer({
         email: normalizedEmail,
         passwordHash,
         role: 'TRAINER',
+        isPlatformAdmin: false,
+        isPlatformManager: false,
+        canReviewExercises: false,
       },
     })
 
@@ -237,10 +243,10 @@ export async function createOrganizationTrainer({
   })
 }
 
-
 export async function updateOrganizationMember({
   organizationId,
   memberId,
+  actorUserId,
   isActive,
   role,
 }: UpdateMemberInput) {
@@ -261,7 +267,87 @@ export async function updateOrganizationMember({
     )
   }
 
+  const actor = await prisma.user.findUnique({
+    where: { id: actorUserId },
+    select: {
+      isActive: true,
+      isPlatformAdmin: true,
+      isPlatformManager: true,
+    },
+  })
+
+  if (!actor?.isActive) {
+    throw new AppError('Usuário sem acesso ativo.', 403)
+  }
+
+  const actorIsOwner = isPlatformOwner(actorUserId)
+
   return prisma.$transaction(async (tx) => {
+    const membership = await tx.organizationMember.findFirst({
+      where: {
+        id: memberId,
+        organizationId,
+      },
+      select: {
+        id: true,
+        role: true,
+        userId: true,
+        user: {
+          select: {
+            isPlatformAdmin: true,
+            isPlatformManager: true,
+          },
+        },
+      },
+    })
+
+    if (!membership) {
+      throw new AppError(
+        'Membro não encontrado.',
+        404,
+      )
+    }
+
+    if (membership.role === 'OWNER') {
+      throw new AppError(
+        'O proprietário da organização não pode ser alterado por esta operação.',
+        403,
+      )
+    }
+
+    const targetIsOwner = isPlatformOwner(
+      membership.userId,
+    )
+
+    if (targetIsOwner && !actorIsOwner) {
+      throw new AppError(
+        'A conta do proprietário técnico está protegida.',
+        403,
+      )
+    }
+
+    if (
+      !actorIsOwner &&
+      membership.user.isPlatformAdmin
+    ) {
+      throw new AppError(
+        'Não é permitido alterar o vínculo de um administrador global.',
+        403,
+      )
+    }
+
+    if (
+      !actorIsOwner &&
+      actor.isPlatformManager &&
+      membership.user.isPlatformManager &&
+      membership.userId !== actorUserId
+    ) {
+      throw new AppError(
+        'A alteração de outro gestor global exige autorização do proprietário técnico.',
+        403,
+      )
+    }
+
     const result = await tx.organizationMember.updateMany({
       where: {
         id: memberId,
@@ -301,4 +387,3 @@ export async function updateOrganizationMember({
     })
   })
 }
-
