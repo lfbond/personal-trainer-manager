@@ -6,6 +6,8 @@ export interface AuthUser {
   name: string
   email: string
   isPlatformAdmin: boolean
+  isPlatformManager: boolean
+  canReviewExercises: boolean
 }
 
 export interface AuthContextData {
@@ -15,7 +17,6 @@ export interface AuthContextData {
   signOut: () => void
 }
 
-// Contexto compartilhado entre o provider e os componentes.
 export const AuthContext = createContext<AuthContextData | undefined>(
   undefined,
 )

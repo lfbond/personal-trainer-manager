@@ -1,119 +1,118 @@
 
-import { api } from '../lib/api'
+import { api } from "../lib/api";
 
-export type OrganizationRole = 'OWNER' | 'ADMIN' | 'TRAINER'
+export type OrganizationRole = "OWNER" | "ADMIN" | "TRAINER";
 
 export interface Organization {
-  id: string
-  name: string
-  slug: string
-  isActive: boolean
-  createdAt: string
+  id: string;
+  name: string;
+  slug: string;
+  isActive: boolean;
+  createdAt: string;
   _count: {
-    members: number
-    students: number
-  }
+    members: number;
+    students: number;
+  };
 }
 
 export interface OrganizationMember {
-  id: string
-  role: OrganizationRole
-  isActive: boolean
-  createdAt: string
+  id: string;
+  role: OrganizationRole;
+  isActive: boolean;
+  createdAt: string;
   user: {
-    id: string
-    name: string
-    email: string
-    isActive: boolean
+    id: string;
+    name: string;
+    email: string;
+    isActive: boolean;
     trainer: {
-      id: string
-    } | null
-  }
+      id: string;
+    } | null;
+  };
 }
 
 export interface CreateOrganizationInput {
-  name: string
-  slug: string
-  ownerUserId: string
+  name: string;
+  slug: string;
+  ownerUserId: string;
 }
 
 export interface CreateTrainerInput {
-  name: string
-  email: string
-  password: string
-  role: 'ADMIN' | 'TRAINER'
+  name: string;
+  email: string;
+  password: string;
+  role: "ADMIN" | "TRAINER";
 }
 
 export interface UpdateMemberInput {
-  isActive?: boolean
-  role?: 'ADMIN' | 'TRAINER'
+  isActive?: boolean;
+  role?: "ADMIN" | "TRAINER";
 }
 
-export async function getOrganizations() {
-  const response = await api.get<Organization[]>(
-    '/admin/organizations',
-  )
+export interface EligibleOwner {
+  id: string;
+  name: string;
+  email: string;
+}
 
-  return response.data
+export async function getOrganizations(): Promise<Organization[]> {
+  const response = await api.get<Organization[]>(
+    "/admin/organizations"
+  );
+
+  return response.data;
 }
 
 export async function createOrganization(
-  data: CreateOrganizationInput,
-) {
+  data: CreateOrganizationInput
+): Promise<Organization> {
   const response = await api.post<Organization>(
-    '/admin/organizations',
-    data,
-  )
+    "/admin/organizations",
+    data
+  );
 
-  return response.data
+  return response.data;
 }
 
 export async function getOrganizationMembers(
-  organizationId: string,
-) {
+  organizationId: string
+): Promise<OrganizationMember[]> {
   const response = await api.get<OrganizationMember[]>(
-    `/organizations/${organizationId}/members`,
-  )
+    `/organizations/${organizationId}/members`
+  );
 
-  return response.data
+  return response.data;
 }
 
 export async function createTrainer(
   organizationId: string,
-  data: CreateTrainerInput,
+  data: CreateTrainerInput
 ) {
   const response = await api.post(
     `/organizations/${organizationId}/trainers`,
-    data,
-  )
+    data
+  );
 
-  return response.data
+  return response.data;
 }
 
 export async function updateOrganizationMember(
   organizationId: string,
   memberId: string,
-  data: UpdateMemberInput,
+  data: UpdateMemberInput
 ) {
   const response = await api.patch(
     `/organizations/${organizationId}/members/${memberId}`,
-    data,
-  )
+    data
+  );
 
-  return response.data
+  return response.data;
 }
 
-
-export interface EligibleOwner {
-  id: string
-  name: string
-  email: string
-}
-
-export async function getEligibleOwners() {
+export async function getEligibleOwners(): Promise<EligibleOwner[]> {
   const response = await api.get<EligibleOwner[]>(
-    '/admin/organizations/eligible-owners',
-  )
+    "/admin/organizations/eligible-owners"
+  );
 
-  return response.data
+  return response.data;
 }

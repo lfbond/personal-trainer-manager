@@ -63,6 +63,15 @@ export const createOrganizationTrainerController: RequestHandler =
 
 export const updateOrganizationMemberController: RequestHandler =
   async (req, res) => {
+    const actorUserId = res.locals.userId as string | undefined
+
+    if (!actorUserId) {
+      res.status(401).json({
+        message: 'Usuário não autenticado.',
+      })
+      return
+    }
+
     const { organizationId, memberId } =
       organizationMemberParamsSchema.parse(req.params)
 
@@ -72,6 +81,7 @@ export const updateOrganizationMemberController: RequestHandler =
     const member = await updateOrganizationMember({
       organizationId,
       memberId,
+      actorUserId,
       ...data,
     })
 

@@ -10,6 +10,10 @@ import { workoutRoutes } from './workout.routes.js'
 import { publicExerciseRoutes } from './public-exercise.routes.js'
 
 import {
+  ownerInvitationRoutes,
+} from './organization-invitations.routes.js'
+
+import {
   platformOrganizationRoutes,
   organizationManagementRoutes,
 } from './organization-management.routes.js'
@@ -25,6 +29,8 @@ routes.use('/auth', authRoutes)
 
 // Catálogo público de exercícios — acesso sem autenticação.
 routes.use('/public/exercises', publicExerciseRoutes)
+
+routes.use('/admin/invitations', ownerInvitationRoutes)
 
 // Disponibiliza a organização selecionada para as rotas seguintes.
 routes.use(organizationContextMiddleware)

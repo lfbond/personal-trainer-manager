@@ -36,6 +36,7 @@ async function ensureTrainerAccess(
   }
 }
 
+
 async function ensureCatalogAdminAccess(
   trainerId: string,
   organizationId: string,
@@ -48,6 +49,7 @@ async function ensureCatalogAdminAccess(
       user: {
         select: {
           isPlatformAdmin: true,
+          canReviewExercises: true,
           isActive: true,
         },
       },
@@ -56,14 +58,18 @@ async function ensureCatalogAdminAccess(
 
   if (
     !trainer?.user.isActive ||
-    !trainer.user.isPlatformAdmin
+    !(
+      trainer.user.isPlatformAdmin ||
+      trainer.user.canReviewExercises
+    )
   ) {
     throw new AppError(
-      'Apenas administradores da plataforma podem revisar imagens do catálogo global.',
+      'Acesso restrito aos revisores autorizados do catálogo.',
       403,
     )
   }
 }
+
 
 // ============================================================
 // LISTAGEM DE EXERCÍCIOS

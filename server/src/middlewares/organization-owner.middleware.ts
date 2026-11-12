@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 import { prisma } from '../lib/prisma.js'
 import { AppError } from '../lib/app-error.js'
+import { isPlatformOwner } from '../lib/platform-owner.js'
 
 export const requireOrganizationOwner: RequestHandler = async (
   req,
@@ -26,6 +27,7 @@ export const requireOrganizationOwner: RequestHandler = async (
       select: {
         isActive: true,
         isPlatformAdmin: true,
+        isPlatformManager: true,
       },
     })
 
@@ -33,22 +35,39 @@ export const requireOrganizationOwner: RequestHandler = async (
       throw new AppError('Usuário sem acesso ativo.', 403)
     }
 
-    if (user.isPlatformAdmin) {
+    const organization = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: {
+        id: true,
+        isActive: true,
+      },
+    })
+
+    if (!organization?.isActive) {
+      throw new AppError(
+        'Organização não encontrada ou inativa.',
+        404,
+      )
+    }
+
+    if (
+      isPlatformOwner(userId) ||
+      user.isPlatformAdmin ||
+      user.isPlatformManager
+    ) {
       return next()
     }
 
-    const membership = await prisma.organizationMember.findFirst({
-      where: {
-        userId,
-        organizationId,
-        role: 'OWNER',
-        isActive: true,
-        organization: {
+    const membership =
+      await prisma.organizationMember.findFirst({
+        where: {
+          userId,
+          organizationId,
+          role: 'OWNER',
           isActive: true,
         },
-      },
-      select: { id: true },
-    })
+        select: { id: true },
+      })
 
     if (!membership) {
       throw new AppError(
