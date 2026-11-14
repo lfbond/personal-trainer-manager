@@ -8,6 +8,8 @@ import {
   listExercisesQuerySchema,
   createExerciseVariationSchema,
   updateExerciseVariationSchema,
+   createExerciseSchema,
+  updateExerciseSchema,
 } from '../schemas/exercise.schema.js'
 
 import {
@@ -19,6 +21,11 @@ import {
   listExerciseImageReviews,
   reviewExerciseImage,
   reviewExerciseImagesBatch,
+  createGlobalExercise,
+  getGlobalExerciseById,
+  updateGlobalExercise,
+  createGlobalExerciseVariation,
+  updateGlobalExerciseVariation,
 } from '../services/exercise.service.js'
 
 import {
@@ -264,4 +271,77 @@ export const reviewExerciseImagesBatchController:
     })
 
     res.status(200).json(result)
+  }
+
+  export const createGlobalExerciseController: RequestHandler =
+  async (req, res) => {
+    const data = createExerciseSchema.parse(req.body)
+    const userId = getAuthenticatedUserId(res)
+
+    const exercise = await createGlobalExercise({
+      userId,
+      data,
+    })
+
+    res.status(201).json(exercise)
+  }
+
+export const getGlobalExerciseController: RequestHandler =
+  async (req, res) => {
+    const exerciseId = z.uuid().parse(req.params.id)
+    const userId = getAuthenticatedUserId(res)
+
+    const exercise = await getGlobalExerciseById({
+      userId,
+      exerciseId,
+    })
+
+    res.status(200).json(exercise)
+  }
+
+export const updateGlobalExerciseController: RequestHandler =
+  async (req, res) => {
+    const exerciseId = z.uuid().parse(req.params.id)
+    const data = updateExerciseSchema.parse(req.body)
+    const userId = getAuthenticatedUserId(res)
+
+    const exercise = await updateGlobalExercise({
+      userId,
+      exerciseId,
+      data,
+    })
+
+    res.status(200).json(exercise)
+  }
+
+export const createGlobalVariationController: RequestHandler =
+  async (req, res) => {
+    const data =
+      createExerciseVariationSchema.parse(req.body)
+
+    const userId = getAuthenticatedUserId(res)
+
+    const variation = await createGlobalExerciseVariation({
+      userId,
+      data,
+    })
+
+    res.status(201).json(variation)
+  }
+
+export const updateGlobalVariationController: RequestHandler =
+  async (req, res) => {
+    const variationId = z.uuid().parse(req.params.id)
+    const data =
+      updateExerciseVariationSchema.parse(req.body)
+
+    const userId = getAuthenticatedUserId(res)
+
+    const variation = await updateGlobalExerciseVariation({
+      userId,
+      variationId,
+      data,
+    })
+
+    res.status(200).json(variation)
   }

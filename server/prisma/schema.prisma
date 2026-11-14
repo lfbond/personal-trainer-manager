@@ -105,6 +105,19 @@ enum ExerciseStatus {
   INACTIVE
 }
 
+enum ExerciseModerationAction {
+  SAFETY_SUSPENSION
+  SAFETY_REINSTATEMENT
+  EDITORIAL_APPROVAL
+  EDITORIAL_REJECTION
+  EDITORIAL_RESUBMISSION
+}
+
+enum ExerciseModerationStatus {
+  OPEN
+  RESOLVED
+}
+
 enum ExerciseImageStatus {
   PENDING
   APPROVED
@@ -241,8 +254,9 @@ model User {
 
   organizationMemberships OrganizationMember[]
 
-  trainer  Trainer?
-  students Student[]
+  trainer             Trainer?
+  students            Student[]
+  exerciseModerations ExerciseModeration[]
 }
 
 model Trainer {
@@ -497,12 +511,39 @@ model ExerciseVariation {
 
   muscles          ExerciseMuscle[]
   workoutExercises WorkoutExercise[]
+  moderations      ExerciseModeration[]
 
   @@index([exerciseId])
   @@index([trainerId])
   @@index([category, level])
   @@index([status])
   @@index([imageReviewStatus])
+}
+
+model ExerciseModeration {
+  id                  String @id @default(uuid()) @db.Uuid
+  exerciseVariationId String @db.Uuid
+  moderatorId         String @db.Uuid
+
+  action ExerciseModerationAction
+  status ExerciseModerationStatus @default(OPEN)
+
+  reason               String
+  scientificReferences String?
+
+  previousStatus ExerciseStatus
+  newStatus      ExerciseStatus
+
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+
+  exerciseVariation ExerciseVariation @relation(fields: [exerciseVariationId], references: [id], onDelete: Restrict)
+  moderator         User              @relation(fields: [moderatorId], references: [id], onDelete: Restrict)
+
+  @@index([exerciseVariationId])
+  @@index([moderatorId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model Muscle {

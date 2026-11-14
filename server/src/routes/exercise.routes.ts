@@ -2,7 +2,16 @@
 import { Router } from 'express'
 
 import { requireAuth } from '../middlewares/auth.middleware.js'
-import { requireCatalogReviewer } from '../middlewares/catalog-review.middleware.js'
+
+import {
+  requireCatalogReviewer,
+} from '../middlewares/catalog-review.middleware.js'
+
+import {
+  requireCatalogManager,
+} from '../middlewares/catalog-permissions.middleware.js'
+
+import { exerciseCatalogListRoutes } from './exercise-catalog-list.routes.js'
 
 import {
   listExercisesController,
@@ -13,9 +22,20 @@ import {
   listExerciseImageReviewsController,
   reviewExerciseImageController,
   reviewExerciseImagesBatchController,
+  createGlobalExerciseController,
+  getGlobalExerciseController,
+  updateGlobalExerciseController,
+  createGlobalVariationController,
+  updateGlobalVariationController
 } from '../controllers/exercise.controller.js'
 
 export const exerciseRoutes = Router()
+
+// Listagem administrativa do catálogo global.
+exerciseRoutes.use(
+  '/catalog',
+  exerciseCatalogListRoutes,
+)
 
 // ============================================================
 // AUTENTICAÇÃO
@@ -23,6 +43,40 @@ export const exerciseRoutes = Router()
 
 // Todas as rotas exigem autenticação JWT.
 exerciseRoutes.use(requireAuth)
+
+// ============================================================
+// CRUD EDITORIAL DO CATÁLOGO GLOBAL
+// ============================================================
+
+exerciseRoutes.post(
+  '/catalog',
+  requireCatalogManager,
+  createGlobalExerciseController,
+)
+
+exerciseRoutes.get(
+  '/catalog/:id',
+  requireCatalogManager,
+  getGlobalExerciseController,
+)
+
+exerciseRoutes.patch(
+  '/catalog/:id',
+  requireCatalogManager,
+  updateGlobalExerciseController,
+)
+
+exerciseRoutes.post(
+  '/catalog/variations',
+  requireCatalogManager,
+  createGlobalVariationController,
+)
+
+exerciseRoutes.patch(
+  '/catalog/variations/:id',
+  requireCatalogManager,
+  updateGlobalVariationController,
+)
 
 // ============================================================
 // CATÁLOGO DE EXERCÍCIOS
