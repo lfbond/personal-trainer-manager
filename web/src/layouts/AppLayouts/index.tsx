@@ -31,6 +31,10 @@ export function AppLayout() {
   const [organizationResult, setOrganizationResult] =
     useState<OrganizationResult | null>(null);
 
+  const [organizationError, setOrganizationError] = useState<string | null>(
+    null,
+  );
+
   const [activeOrganizationId, setActiveOrganizationIdState] = useState<
     string | null
   >(getActiveOrganizationId);
@@ -53,11 +57,14 @@ export function AppLayout() {
   const canReviewExercises = user?.canReviewExercises === true;
 
   const canManagePlatform = isPlatformAdmin || isPlatformManager;
-
   const canAccessCatalogReview = isPlatformAdmin || canReviewExercises;
 
+  // ============================================================
+  // ORGANIZAÇÕES DO USUÁRIO
+  // ============================================================
+
   useEffect(() => {
-    if (isDemoMode || !userId || isPlatformAdmin) {
+    if (isDemoMode || !userId) {
       return;
     }
 
@@ -72,34 +79,84 @@ export function AppLayout() {
           userId,
           organizations: data,
         });
+
+        setOrganizationError(null);
       })
       .catch(() => {
         if (!active) return;
 
-        setOrganizationResult({
-          userId,
-          organizations: [],
-        });
+        setOrganizationError(
+          "Não foi possível carregar suas organizações. Atualize a página para tentar novamente.",
+        );
       });
 
     return () => {
       active = false;
     };
-  }, [userId, isPlatformAdmin, isDemoMode]);
+  }, [userId, isDemoMode]);
+
+  const organizationLoaded = organizationResult?.userId === userId;
 
   const managedOrganizations =
-    !isDemoMode &&
-    userId &&
-    !isPlatformAdmin &&
-    organizationResult?.userId === userId
+    !isDemoMode && userId && organizationResult?.userId === userId
       ? organizationResult.organizations
       : [];
+
+  // ============================================================
+  // VALIDAR ORGANIZAÇÃO SALVA NO NAVEGADOR
+  // ============================================================
+
+  const storedOrganizationId = getActiveOrganizationId();
+
+  const organizationIsValid =
+    organizationLoaded &&
+    !!storedOrganizationId &&
+    managedOrganizations.some(
+      (membership) => membership.organization.id === storedOrganizationId,
+    );
+
+  const resolvedOrganizationId = organizationIsValid
+    ? storedOrganizationId
+    : null;
+
+  const organizationNeedsCorrection =
+    organizationLoaded &&
+    !isDemoMode &&
+    storedOrganizationId !== resolvedOrganizationId;
+
+  useEffect(() => {
+    if (isDemoMode || !userId || !organizationLoaded) {
+      return;
+    }
+
+    if (organizationNeedsCorrection) {
+      setActiveOrganizationId(resolvedOrganizationId);
+    }
+  }, [
+    isDemoMode,
+    userId,
+    organizationLoaded,
+    organizationNeedsCorrection,
+    resolvedOrganizationId,
+  ]);
+
+  // ============================================================
+  // AÇÕES DO MENU
+  // ============================================================
 
   function closeMenu() {
     setMenuOpen(false);
   }
 
   function handleSelectOrganization(organizationId: string) {
+    const allowed = managedOrganizations.some(
+      (membership) => membership.organization.id === organizationId,
+    );
+
+    if (!allowed) {
+      return;
+    }
+
     setActiveOrganizationId(organizationId);
     setActiveOrganizationIdState(organizationId);
 
@@ -114,10 +171,15 @@ export function AppLayout() {
 
     setActiveOrganizationId(null);
     setActiveOrganizationIdState(null);
+    setOrganizationResult(null);
 
     signOut();
     navigate("/login", { replace: true });
   }
+
+  // ============================================================
+  // APARÊNCIA
+  // ============================================================
 
   const themeOptions = [
     { value: "light", label: "Claro", icon: "☀" },
@@ -156,6 +218,15 @@ export function AppLayout() {
 
   const showAdministrationSection =
     isDemoMode || canManagePlatform || canAccessCatalogReview;
+
+  // ============================================================
+  // CONTROLE DE INICIALIZAÇÃO
+  // ============================================================
+
+  const organizationReady =
+    isDemoMode ||
+    isVisitor ||
+    (organizationLoaded && !organizationNeedsCorrection);
 
   return (
     <div className="flex min-h-screen min-w-0 flex-col md:grid md:grid-cols-[16rem_minmax(0,1fr)]">
@@ -510,7 +581,24 @@ export function AppLayout() {
       </aside>
 
       <main className="min-w-0 flex-1 bg-page px-4 py-6 md:p-8">
-        <Outlet />
+        {organizationReady ? (
+          <Outlet />
+        ) : organizationError ? (
+          <div role="alert" className="rounded-lg border border-red-500 p-5">
+            <h2 className="mb-2 text-lg font-semibold">
+              Não foi possível carregar suas organizações
+            </h2>
+
+            <p className="text-sm">{organizationError}</p>
+          </div>
+        ) : (
+          <div
+            role="status"
+            className="rounded-lg border border-border-default p-5"
+          >
+            <p className="font-medium">Validando organização e permissões...</p>
+          </div>
+        )}
       </main>
     </div>
   );

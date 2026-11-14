@@ -9,6 +9,7 @@ import type {
   CreateExerciseInput,
   CreateExerciseVariationInput,
   UpdateExerciseVariationInput,
+  UpdateExerciseInput,
 } from '../schemas/exercise.schema.js'
 
 import type {
@@ -44,14 +45,13 @@ async function ensureTrainerAccess(
 // A auditoria do catálogo não depende de organização
 // selecionada nem de vínculo administrativo local.
 //
-// Podem auditar:
+// Podem acessar:
 // - Proprietário técnico da plataforma;
 // - Administradores globais;
 // - Usuários com canReviewExercises = true.
 //
-// Gestores globais não recebem automaticamente a permissão
-// de auditoria, salvo se também possuírem uma das permissões
-// acima.
+// Gestores globais não recebem automaticamente
+// a permissão de auditoria.
 
 async function ensureCatalogReviewerAccess(
   userId: string,
@@ -97,8 +97,11 @@ export async function listExercises({
 }: ListExercisesParams) {
   await ensureTrainerAccess(trainerId, organizationId)
 
+  // Somente variações ativas e aprovadas
+  // podem aparecer no catálogo dos treinadores.
   const variationFilter: Prisma.ExerciseVariationWhereInput = {
     status: 'ACTIVE',
+    needsEditorialReview: false,
     OR: [
       { trainerId: null },
       { trainerId },
@@ -122,13 +125,12 @@ export async function listExercises({
           mode: 'insensitive',
         },
       }),
-      ...(filters?.category || filters?.level
-        ? {
-            variations: {
-              some: variationFilter,
-            },
-          }
-        : {}),
+
+      // Não mostrar exercícios-base sem
+      // variações disponíveis para prescrição.
+      variations: {
+        some: variationFilter,
+      },
     },
     include: {
       variations: {
@@ -158,9 +160,10 @@ export async function createExercise({
 }: CreateExerciseParams) {
   await ensureTrainerAccess(trainerId, organizationId)
 
-  const existingExercise = await prisma.exercise.findUnique({
-    where: { code: data.code },
-  })
+  const existingExercise =
+    await prisma.exercise.findUnique({
+      where: { code: data.code },
+    })
 
   if (existingExercise) {
     throw new AppError(
@@ -169,6 +172,9 @@ export async function createExercise({
     )
   }
 
+  // O exercício-base não possui status próprio.
+  // A disponibilidade depende das variações
+  // aprovadas vinculadas a ele.
   return prisma.exercise.create({
     data: {
       code: data.code,
@@ -180,7 +186,7 @@ export async function createExercise({
 }
 
 // ============================================================
-// CADASTRO DE VARIAÇÕES
+// CADASTRO DE VARIAÇÕES DOS TREINADORES
 // ============================================================
 
 interface CreateExerciseVariationParams {
@@ -236,7 +242,11 @@ export async function createExerciseVariation({
       safetyNotes: data.safetyNotes ?? null,
       muscleExplanation:
         data.muscleExplanation ?? null,
-      status: 'ACTIVE',
+
+      // Nenhuma variação criada por treinador
+      // será publicada automaticamente.
+      status: 'DRAFT',
+      needsEditorialReview: true,
     },
   })
 }
@@ -263,7 +273,11 @@ export async function getExerciseVariationById({
       where: {
         id: variationId,
         OR: [
-          { trainerId: null },
+          {
+            trainerId: null,
+            status: 'ACTIVE',
+            needsEditorialReview: false,
+          },
           { trainerId },
         ],
       },
@@ -301,19 +315,61 @@ export async function updateExerciseVariation({
 }: UpdateVariationParams) {
   await ensureTrainerAccess(trainerId, organizationId)
 
+  const variation =
+    await prisma.exerciseVariation.findFirst({
+      where: {
+        id: variationId,
+        trainerId,
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    })
+
+  if (!variation) {
+    throw new AppError(
+      'Variação não encontrada ou sem permissão.',
+      404,
+    )
+  }
+
+  // Uma variação publicada não pode ser alterada
+  // diretamente sem uma nova avaliação editorial.
+  if (variation.status === 'ACTIVE') {
+    throw new AppError(
+      'Esta variação já foi aprovada. Para alterá-la, será necessário solicitar uma nova revisão editorial.',
+      409,
+    )
+  }
+
+  // Variações inativas não podem ser modificadas
+  // pelo treinador sem autorização editorial.
+  if (variation.status === 'INACTIVE') {
+    throw new AppError(
+      'Esta variação está inativa. Não é permitido editá-la sem uma nova autorização editorial.',
+      409,
+    )
+  }
+
+  // A condição no updateMany também protege contra
+  // alterações de status entre a consulta e a gravação.
   const result =
     await prisma.exerciseVariation.updateMany({
       where: {
         id: variationId,
         trainerId,
+        status: 'DRAFT',
       },
-      data,
+      data: {
+        ...data,
+      },
     })
 
-  if (result.count === 0) {
+  if (result.count !== 1) {
     throw new AppError(
-      'Variação não encontrada ou sem permissão.',
-      404,
+      'A variação não está disponível para edição.',
+      409,
     )
   }
 
@@ -325,7 +381,7 @@ export async function updateExerciseVariation({
 }
 
 // ============================================================
-// DESATIVAR VARIAÇÃO
+// DESATIVAR VARIAÇÃO DO TREINADOR
 // ============================================================
 
 export async function deleteExerciseVariation({
@@ -343,6 +399,7 @@ export async function deleteExerciseVariation({
       },
       select: {
         id: true,
+        status: true,
         _count: {
           select: {
             workoutExercises: true,
@@ -365,15 +422,31 @@ export async function deleteExerciseVariation({
     )
   }
 
-  await prisma.exerciseVariation.updateMany({
-    where: {
-      id: variationId,
-      trainerId,
-    },
-    data: {
-      status: 'INACTIVE',
-    },
-  })
+  if (variation.status === 'INACTIVE') {
+    throw new AppError(
+      'Esta variação já está inativa.',
+      409,
+    )
+  }
+
+  const result =
+    await prisma.exerciseVariation.updateMany({
+      where: {
+        id: variationId,
+        trainerId,
+        status: variation.status,
+      },
+      data: {
+        status: 'INACTIVE',
+      },
+    })
+
+  if (result.count !== 1) {
+    throw new AppError(
+      'Não foi possível desativar a variação.',
+      409,
+    )
+  }
 
   return {
     message: 'Variação desativada com sucesso.',
@@ -646,7 +719,7 @@ export async function reviewExerciseImage({
 }
 
 // ============================================================
-// APROVAÇÃO OU REJEIÇÃO EM LOTE
+// APROVAÇÃO OU REJEIÇÃO DE IMAGENS EM LOTE
 // ============================================================
 
 export async function reviewExerciseImagesBatch({
@@ -741,5 +814,271 @@ export async function reviewExerciseImagesBatch({
       status,
       updated: result.count,
     }
+  })
+}
+
+// ============================================================
+// GERENCIAMENTO DO CATÁLOGO GLOBAL
+// ============================================================
+
+export async function createGlobalExercise({
+  userId,
+  data,
+}: {
+  userId: string
+  data: CreateExerciseInput
+}) {
+  await ensureCatalogReviewerAccess(userId)
+
+  const existing = await prisma.exercise.findUnique({
+    where: { code: data.code },
+    select: { id: true },
+  })
+
+  if (existing) {
+    throw new AppError(
+      'Já existe um exercício com este código.',
+      409,
+    )
+  }
+
+  return prisma.exercise.create({
+    data: {
+      code: data.code,
+      name: data.name,
+      muscleGroup: data.muscleGroup,
+      description: data.description ?? null,
+    },
+  })
+}
+
+// ============================================================
+// CONSULTAR EXERCÍCIO GLOBAL
+// ============================================================
+
+export async function getGlobalExerciseById({
+  userId,
+  exerciseId,
+}: {
+  userId: string
+  exerciseId: string
+}) {
+  await ensureCatalogReviewerAccess(userId)
+
+  const exercise = await prisma.exercise.findUnique({
+    where: { id: exerciseId },
+    include: {
+      variations: {
+        // O CRUD global não deve expor variações
+        // particulares de outros treinadores.
+        where: {
+          trainerId: null,
+        },
+        orderBy: {
+          name: 'asc',
+        },
+      },
+    },
+  })
+
+  if (!exercise) {
+    throw new AppError(
+      'Exercício não encontrado.',
+      404,
+    )
+  }
+
+  return exercise
+}
+
+// ============================================================
+// ATUALIZAR EXERCÍCIO-BASE GLOBAL
+// ============================================================
+
+export async function updateGlobalExercise({
+  userId,
+  exerciseId,
+  data,
+}: {
+  userId: string
+  exerciseId: string
+  data: UpdateExerciseInput
+}) {
+  await ensureCatalogReviewerAccess(userId)
+
+  const existing = await prisma.exercise.findUnique({
+    where: { id: exerciseId },
+    select: { id: true },
+  })
+
+  if (!existing) {
+    throw new AppError(
+      'Exercício não encontrado.',
+      404,
+    )
+  }
+
+  // Alterações em exercícios-base compartilhados
+  // também precisam respeitar a revisão editorial.
+  //
+  // Como Exercise ainda não possui versionamento,
+  // bloqueamos alterações quando já existem
+  // variações ativas associadas.
+  const activeVariations =
+    await prisma.exerciseVariation.count({
+      where: {
+        exerciseId,
+        status: 'ACTIVE',
+      },
+    })
+
+  if (activeVariations > 0) {
+    throw new AppError(
+      'Este exercício-base possui variações ativas. Sua edição exige um fluxo de revisão editorial.',
+      409,
+    )
+  }
+
+  return prisma.exercise.update({
+    where: { id: exerciseId },
+    data,
+  })
+}
+
+// ============================================================
+// CRIAR VARIAÇÃO GLOBAL
+// ============================================================
+
+export async function createGlobalExerciseVariation({
+  userId,
+  data,
+}: {
+  userId: string
+  data: CreateExerciseVariationInput
+}) {
+  await ensureCatalogReviewerAccess(userId)
+
+  const exercise = await prisma.exercise.findUnique({
+    where: { id: data.exerciseId },
+    select: { id: true },
+  })
+
+  if (!exercise) {
+    throw new AppError(
+      'Exercício-base não encontrado.',
+      404,
+    )
+  }
+
+  const existing = await prisma.exerciseVariation.findUnique({
+    where: { code: data.code },
+    select: { id: true },
+  })
+
+  if (existing) {
+    throw new AppError(
+      'Já existe uma variação com este código.',
+      409,
+    )
+  }
+
+  return prisma.exerciseVariation.create({
+    data: {
+      exerciseId: data.exerciseId,
+      trainerId: null,
+      code: data.code,
+      name: data.name,
+      category: data.category,
+      level: data.level,
+      equipment: data.equipment ?? null,
+      subgroup: data.subgroup ?? null,
+      description: data.description ?? null,
+      instructions: data.instructions ?? null,
+      safetyNotes: data.safetyNotes ?? null,
+      muscleExplanation:
+        data.muscleExplanation ?? null,
+
+      // Todas as novas variações globais
+      // aguardam aprovação editorial.
+      status: 'DRAFT',
+      needsEditorialReview: true,
+    },
+  })
+}
+
+// ============================================================
+// ATUALIZAR VARIAÇÃO GLOBAL
+// ============================================================
+
+export async function updateGlobalExerciseVariation({
+  userId,
+  variationId,
+  data,
+}: {
+  userId: string
+  variationId: string
+  data: UpdateExerciseVariationInput
+}) {
+  await ensureCatalogReviewerAccess(userId)
+
+  const existing =
+    await prisma.exerciseVariation.findFirst({
+      where: {
+        id: variationId,
+        trainerId: null,
+      },
+      select: {
+        id: true,
+        status: true,
+      },
+    })
+
+  if (!existing) {
+    throw new AppError(
+      'Variação global não encontrada.',
+      404,
+    )
+  }
+
+  // Impede publicar alterações editoriais
+  // sem uma nova aprovação.
+  if (existing.status === 'ACTIVE') {
+    throw new AppError(
+      'Esta variação global está ativa. Para editá-la, será necessário solicitar uma nova revisão editorial.',
+      409,
+    )
+  }
+
+  if (existing.status === 'INACTIVE') {
+    throw new AppError(
+      'Esta variação global está inativa. É necessária autorização editorial antes de modificá-la.',
+      409,
+    )
+  }
+
+  const result =
+    await prisma.exerciseVariation.updateMany({
+      where: {
+        id: variationId,
+        trainerId: null,
+        status: 'DRAFT',
+      },
+      data: {
+        ...data,
+        needsEditorialReview: true,
+      },
+    })
+
+  if (result.count !== 1) {
+    throw new AppError(
+      'Não foi possível atualizar a variação global.',
+      409,
+    )
+  }
+
+  return prisma.exerciseVariation.findUniqueOrThrow({
+    where: {
+      id: variationId,
+    },
   })
 }

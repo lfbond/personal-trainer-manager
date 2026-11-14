@@ -6,7 +6,6 @@ import { PageHeader } from "../../components/PageHeader";
 import {
   getExerciseImageReviews,
   reviewExerciseImage,
-  reviewExerciseImagesBatch,
   type ImageReviewVariation,
 } from "../../services/exercise-images";
 
@@ -18,11 +17,17 @@ const buttonClass =
   "min-h-11 rounded-lg px-4 py-2 text-sm font-semibold " +
   "disabled:cursor-not-allowed disabled:opacity-50";
 
+const inputClass =
+  "min-h-11 w-full rounded-lg border border-border-default " +
+  "bg-surface px-3 py-2 text-text-primary";
+
 const statusLabels: Record<ExerciseImageStatus, string> = {
   PENDING: "Pendente",
   APPROVED: "Aprovada",
   REJECTED: "Rejeitada",
 };
+
+type ReviewDecision = "APPROVED" | "REJECTED" | "PENDING";
 
 function getErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
@@ -94,7 +99,7 @@ function ImagePreview({
       {imageUrl && !failed ? (
         <img
           src={imageUrl}
-          alt={`Demonstração: ${name}`}
+          alt={`Demonstração do exercício: ${name}`}
           loading="lazy"
           onError={() => setFailedUrl(imageUrl)}
           className="h-full w-full object-contain"
@@ -118,13 +123,18 @@ export function AdminExerciseImages() {
   const [status, setStatus] = useState<ExerciseImageStatus | "">("PENDING");
 
   const [skip, setSkip] = useState(0);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const [loading, setLoading] = useState(true);
-  const [processing, setProcessing] = useState(false);
+  const [processingId, setProcessingId] = useState<string | null>(null);
 
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
+
+  const [selectedVariation, setSelectedVariation] =
+    useState<ImageReviewVariation | null>(null);
+
+  const [decision, setDecision] = useState<ReviewDecision | null>(null);
+  const [notes, setNotes] = useState("");
 
   const loadImages = useCallback(async () => {
     setLoading(true);
@@ -140,14 +150,9 @@ export function AdminExerciseImages() {
 
       setVariations(result.variations);
       setTotal(result.total);
-      setSelectedIds([]);
     } catch (err) {
       setVariations([]);
       setTotal(0);
-      setSelectedIds([]);
-
-      // Não encerramos a sessão automaticamente.
-      // Exibimos a resposta real da API.
       setError(getErrorMessage(err));
     } finally {
       setLoading(false);
@@ -155,184 +160,123 @@ export function AdminExerciseImages() {
   }, [status, search, skip]);
 
   useEffect(() => {
-    // Inicia o carregamento após a execução do efeito,
-    // evitando atualização síncrona de estado nele.
-    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      void loadImages();
+    }, 0);
 
-    async function fetchImages() {
-      try {
-        const result = await getExerciseImageReviews({
-          status: status || undefined,
-          search: search.trim() || undefined,
-          take: PAGE_SIZE,
-          skip,
-        });
-
-        if (controller.signal.aborted) return;
-
-        setVariations(result.variations);
-        setTotal(result.total);
-        setSelectedIds([]);
-        setError("");
-      } catch (err) {
-        if (controller.signal.aborted) return;
-
-        setVariations([]);
-        setTotal(0);
-        setSelectedIds([]);
-        setError(getErrorMessage(err));
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      }
-    }
-
-    void fetchImages();
-
-    return () => {
-      controller.abort();
-    };
-  }, [status, search, skip]);
+    return () => window.clearTimeout(timeout);
+  }, [loadImages]);
 
   function resetPagination() {
     setSkip(0);
-    setSelectedIds([]);
+    setSelectedVariation(null);
+    setDecision(null);
+    setNotes("");
   }
 
-  function toggleSelection(id: string) {
-    setSelectedIds((current) =>
-      current.includes(id)
-        ? current.filter((item) => item !== id)
-        : [...current, id],
-    );
-  }
+  function openReview(
+    variation: ImageReviewVariation,
+    nextDecision: ReviewDecision,
+  ) {
+    if (processingId !== null || loading) return;
 
-  function selectAllVisible() {
-    const eligibleIds = variations
-      .filter((item) => Boolean(item.imageUrl))
-      .map((item) => item.id);
-
-    if (eligibleIds.length === 0) {
+    if (!variation.imageUrl) {
+      setError("Esta variação não possui imagem cadastrada para avaliação.");
       return;
     }
 
-    const allSelected = eligibleIds.every((id) => selectedIds.includes(id));
-
-    setSelectedIds(allSelected ? [] : eligibleIds);
-  }
-
-  async function handleReview(
-    variation: ImageReviewVariation,
-    decision: ExerciseImageStatus,
-  ) {
-    if (processing) return;
-
-    let notes: string | null = null;
-
-    if (decision === "REJECTED") {
-      const input = window.prompt(`Motivo da rejeição de "${variation.name}":`);
-
-      if (input === null) return;
-
-      notes = input.trim();
-
-      if (!notes) {
-        setError("Informe uma justificativa para rejeitar.");
-        return;
-      }
-    } else {
-      const confirmed = window.confirm(
-        `Alterar a imagem de "${variation.name}" ` +
-          `para ${statusLabels[decision]}?`,
-      );
-
-      if (!confirmed) return;
-    }
-
-    setProcessing(true);
+    setSelectedVariation(variation);
+    setDecision(nextDecision);
+    setNotes("");
     setError("");
     setFeedback("");
-
-    try {
-      await reviewExerciseImage(variation.id, {
-        status: decision,
-        notes,
-      });
-
-      setFeedback(`Imagem de "${variation.name}" atualizada com sucesso.`);
-
-      await loadImages();
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setProcessing(false);
-    }
   }
 
-  async function handleBatchReview(decision: ExerciseImageStatus) {
-    if (processing || selectedIds.length === 0) return;
+  function closeReview() {
+    if (processingId !== null) return;
 
-    let notes: string | null = null;
+    setSelectedVariation(null);
+    setDecision(null);
+    setNotes("");
+  }
 
-    if (decision === "REJECTED") {
-      const input = window.prompt(
-        "Informe a justificativa da rejeição em lote:",
-      );
+  async function handleReview() {
+    if (!selectedVariation || !decision || processingId !== null) {
+      return;
+    }
 
-      if (input === null) return;
+    const trimmedNotes = notes.trim();
 
-      notes = input.trim();
-
-      if (!notes) {
-        setError("A rejeição em lote exige justificativa.");
-        return;
-      }
+    if (decision === "REJECTED" && trimmedNotes.length < 10) {
+      setError("Informe uma justificativa com pelo menos 10 caracteres.");
+      return;
     }
 
     const confirmed = window.confirm(
-      `Confirmar ${statusLabels[decision].toLowerCase()} ` +
-        `para ${selectedIds.length} imagens?\n\n` +
-        "Aprove apenas imagens verificadas visualmente.",
+      `Confirmar a decisão "${statusLabels[decision]}" ` +
+        `para a imagem de "${selectedVariation.name}"?\n\n` +
+        "Esta decisão será registrada no sistema.",
     );
 
     if (!confirmed) return;
 
-    setProcessing(true);
+    const variationId = selectedVariation.id;
+    const variationName = selectedVariation.name;
+
+    setProcessingId(variationId);
     setError("");
     setFeedback("");
 
     try {
-      const result = await reviewExerciseImagesBatch({
-        variationIds: selectedIds,
+      await reviewExerciseImage(variationId, {
         status: decision,
-        notes,
+        notes: trimmedNotes || null,
       });
 
-      setFeedback(`${result.updated} imagens atualizadas com sucesso.`);
+      setFeedback(
+        `Imagem de "${variationName}" atualizada para ` +
+          `"${statusLabels[decision]}" com sucesso.`,
+      );
+
+      setSelectedVariation(null);
+      setDecision(null);
+      setNotes("");
 
       await loadImages();
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
-      setProcessing(false);
+      setProcessingId(null);
     }
   }
 
-  const selectableIds = variations
-    .filter((variation) => Boolean(variation.imageUrl))
-    .map((variation) => variation.id);
-
-  const allVisibleSelected =
-    selectableIds.length > 0 &&
-    selectableIds.every((id) => selectedIds.includes(id));
+  const hasPreviousPage = skip > 0;
+  const hasNextPage = skip + variations.length < total;
 
   return (
     <div className="min-w-0">
       <PageHeader
-        title="Revisão de imagens"
-        description="Verifique e aprove imagens do catálogo global."
+        title="Auditoria de imagens"
+        description="Avaliação individual das imagens utilizadas no catálogo de exercícios."
       />
+
+      <section className="mb-6 rounded-xl border border-border-default bg-surface p-4">
+        <h2 className="font-semibold text-text-primary">
+          Revisão visual obrigatória
+        </h2>
+
+        <p className="mt-2 text-sm text-text-secondary">
+          Cada imagem deve ser analisada individualmente por um profissional
+          autorizado. A aprovação científica do exercício não significa
+          aprovação automática da imagem.
+        </p>
+
+        <p className="mt-2 text-sm text-text-secondary">
+          Verifique a posição corporal, a execução representada, o equipamento,
+          a coerência anatômica e eventuais riscos antes de registrar uma
+          decisão.
+        </p>
+      </section>
 
       <section className="mb-6 grid gap-3 sm:grid-cols-2">
         <input
@@ -344,7 +288,7 @@ export function AdminExerciseImages() {
             setSearch(event.target.value);
             resetPagination();
           }}
-          className="min-h-11 rounded-lg border border-border-default bg-surface px-3 text-text-primary"
+          className={inputClass}
         />
 
         <select
@@ -354,7 +298,7 @@ export function AdminExerciseImages() {
             setStatus(event.target.value as ExerciseImageStatus | "");
             resetPagination();
           }}
-          className="min-h-11 rounded-lg border border-border-default bg-surface px-3 text-text-primary"
+          className={inputClass}
         >
           <option value="">Todos os status</option>
           <option value="PENDING">Pendentes</option>
@@ -365,13 +309,13 @@ export function AdminExerciseImages() {
 
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-text-secondary">
-          {total} registros encontrados
+          {loading ? "Carregando..." : `${total} registros encontrados`}
         </p>
 
         <button
           type="button"
           onClick={() => void loadImages()}
-          disabled={loading || processing}
+          disabled={loading || processingId !== null}
           className={`${buttonClass} border border-border-default text-text-primary`}
         >
           Atualizar lista
@@ -380,13 +324,13 @@ export function AdminExerciseImages() {
 
       {error && (
         <div role="alert" className="mb-4 rounded-lg border border-red-500 p-4">
-          <p className="mb-3 text-sm text-red-400">{error}</p>
+          <p className="text-sm text-red-400">{error}</p>
 
           <button
             type="button"
             onClick={() => void loadImages()}
-            disabled={loading || processing}
-            className={`${buttonClass} border border-border-default text-text-primary`}
+            disabled={loading || processingId !== null}
+            className={`${buttonClass} mt-3 border border-border-default text-text-primary`}
           >
             Tentar novamente
           </button>
@@ -401,41 +345,6 @@ export function AdminExerciseImages() {
           {feedback}
         </p>
       )}
-
-      <section className="mb-6 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={selectAllVisible}
-          disabled={loading || processing || selectableIds.length === 0}
-          className={`${buttonClass} border border-border-default text-text-primary`}
-        >
-          {allVisibleSelected
-            ? "Desmarcar imagens"
-            : "Selecionar imagens da página"}
-        </button>
-
-        <span className="text-sm text-text-secondary">
-          {selectedIds.length} selecionadas
-        </span>
-
-        <button
-          type="button"
-          disabled={loading || processing || selectedIds.length === 0}
-          onClick={() => void handleBatchReview("APPROVED")}
-          className={`${buttonClass} bg-green-600 text-white hover:bg-green-700`}
-        >
-          Aprovar selecionadas
-        </button>
-
-        <button
-          type="button"
-          disabled={loading || processing || selectedIds.length === 0}
-          onClick={() => void handleBatchReview("REJECTED")}
-          className={`${buttonClass} border border-red-500 text-red-400`}
-        >
-          Rejeitar selecionadas
-        </button>
-      </section>
 
       {loading ? (
         <p role="status" className="py-6 text-text-secondary">
@@ -454,29 +363,16 @@ export function AdminExerciseImages() {
               key={variation.id}
               className="min-w-0 rounded-xl border border-border-default bg-surface p-4"
             >
-              <div className="mb-3 flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  aria-label={`Selecionar ${variation.name}`}
-                  checked={selectedIds.includes(variation.id)}
-                  disabled={!variation.imageUrl || processing}
-                  onChange={() => toggleSelection(variation.id)}
-                  className="mt-1 h-5 w-5"
-                />
+              <div className="mb-3">
+                <p className="text-xs text-text-secondary">{variation.code}</p>
 
-                <div className="min-w-0">
-                  <p className="text-xs text-text-secondary">
-                    {variation.code}
-                  </p>
+                <h2 className="font-semibold text-text-primary">
+                  {variation.name}
+                </h2>
 
-                  <h2 className="font-semibold text-text-primary">
-                    {variation.name}
-                  </h2>
-
-                  <p className="text-xs text-text-secondary">
-                    {variation.exercise.name}
-                  </p>
-                </div>
+                <p className="text-xs text-text-secondary">
+                  {variation.exercise.name}
+                </p>
               </div>
 
               <ImagePreview
@@ -489,42 +385,125 @@ export function AdminExerciseImages() {
               </p>
 
               {variation.imageReviewNotes && (
-                <p className="mb-3 text-sm text-text-secondary">
-                  Observação: {variation.imageReviewNotes}
+                <p className="mb-3 whitespace-pre-line text-sm text-text-secondary">
+                  <strong>Observação: </strong>
+                  {variation.imageReviewNotes}
                 </p>
               )}
 
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  disabled={processing || !variation.imageUrl}
-                  onClick={() => void handleReview(variation, "APPROVED")}
+                  disabled={
+                    processingId !== null || loading || !variation.imageUrl
+                  }
+                  onClick={() => openReview(variation, "APPROVED")}
                   className={`${buttonClass} bg-green-600 text-white hover:bg-green-700`}
                 >
-                  Aprovar
+                  Aprovar imagem
                 </button>
 
                 <button
                   type="button"
-                  disabled={processing || !variation.imageUrl}
-                  onClick={() => void handleReview(variation, "REJECTED")}
+                  disabled={
+                    processingId !== null || loading || !variation.imageUrl
+                  }
+                  onClick={() => openReview(variation, "REJECTED")}
                   className={`${buttonClass} border border-red-500 text-red-400`}
                 >
-                  Rejeitar
+                  Rejeitar imagem
                 </button>
 
                 <button
                   type="button"
-                  disabled={processing}
-                  onClick={() => void handleReview(variation, "PENDING")}
+                  disabled={
+                    processingId !== null || loading || !variation.imageUrl
+                  }
+                  onClick={() => openReview(variation, "PENDING")}
                   className={`${buttonClass} border border-border-default text-text-primary`}
                 >
-                  Pendente
+                  Marcar pendente
                 </button>
               </div>
             </article>
           ))}
         </div>
+      )}
+
+      {selectedVariation && decision && (
+        <section
+          aria-label="Registrar avaliação da imagem"
+          className="mt-8 rounded-xl border border-border-default bg-surface p-4 sm:p-6"
+        >
+          <h2 className="text-xl font-bold text-text-primary">
+            Avaliação da imagem: {selectedVariation.name}
+          </h2>
+
+          <p className="mt-2 text-sm text-text-secondary">
+            Decisão: {statusLabels[decision]}
+          </p>
+
+          <div className="mt-5 max-w-xl">
+            <ImagePreview
+              imageUrl={selectedVariation.imageUrl}
+              name={selectedVariation.name}
+            />
+          </div>
+
+          <label
+            htmlFor="image-review-notes"
+            className="mt-5 block text-sm font-medium text-text-primary"
+          >
+            {decision === "REJECTED"
+              ? "Justificativa da rejeição"
+              : "Observações da avaliação (opcional)"}
+          </label>
+
+          <textarea
+            id="image-review-notes"
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            rows={4}
+            maxLength={3000}
+            placeholder={
+              decision === "REJECTED"
+                ? "Descreva o problema visual e a correção necessária..."
+                : "Registre observações relevantes..."
+            }
+            className={`${inputClass} mt-2`}
+          />
+
+          {decision === "REJECTED" && (
+            <p className="mt-2 text-xs text-text-secondary">
+              A justificativa deve conter pelo menos 10 caracteres.
+            </p>
+          )}
+
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button
+              type="button"
+              disabled={
+                processingId !== null ||
+                (decision === "REJECTED" && notes.trim().length < 10)
+              }
+              onClick={() => void handleReview()}
+              className={`${buttonClass} bg-green-600 text-white hover:bg-green-700`}
+            >
+              {processingId === selectedVariation.id
+                ? "Salvando avaliação..."
+                : "Confirmar decisão"}
+            </button>
+
+            <button
+              type="button"
+              disabled={processingId !== null}
+              onClick={closeReview}
+              className={`${buttonClass} border border-border-default text-text-primary`}
+            >
+              Cancelar
+            </button>
+          </div>
+        </section>
       )}
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
@@ -535,7 +514,7 @@ export function AdminExerciseImages() {
         <div className="flex gap-2">
           <button
             type="button"
-            disabled={loading || processing || skip === 0}
+            disabled={loading || processingId !== null || !hasPreviousPage}
             onClick={() => setSkip(Math.max(0, skip - PAGE_SIZE))}
             className={`${buttonClass} border border-border-default text-text-primary`}
           >
@@ -544,9 +523,7 @@ export function AdminExerciseImages() {
 
           <button
             type="button"
-            disabled={
-              loading || processing || skip + variations.length >= total
-            }
+            disabled={loading || processingId !== null || !hasNextPage}
             onClick={() => setSkip(skip + PAGE_SIZE)}
             className={`${buttonClass} border border-border-default text-text-primary`}
           >
