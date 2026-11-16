@@ -1,14 +1,13 @@
 import { useEffect, useState } from "react";
-import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
-
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useTheme } from "../../hooks/useTheme";
 import { useAuth } from "../../hooks/useAuth";
-
 import {
   api,
   getActiveOrganizationId,
   setActiveOrganizationId,
 } from "../../lib/api";
+import { getExerciseImagePermissions } from "../../services/exercise-image-proposals";
 
 type ManagedOrganization = {
   id: string;
@@ -25,29 +24,31 @@ type OrganizationResult = {
   organizations: ManagedOrganization[];
 };
 
+type ImageCatalogAccess = {
+  userId: string;
+  allowed: boolean;
+};
+
 export function AppLayout() {
   const [menuOpen, setMenuOpen] = useState(false);
-
   const [organizationResult, setOrganizationResult] =
     useState<OrganizationResult | null>(null);
-
   const [organizationError, setOrganizationError] = useState<string | null>(
     null,
   );
-
   const [activeOrganizationId, setActiveOrganizationIdState] = useState<
     string | null
   >(getActiveOrganizationId);
+  const [imageCatalogAccess, setImageCatalogAccess] =
+    useState<ImageCatalogAccess | null>(null);
 
   const navigate = useNavigate();
   const location = useLocation();
-
   const isDemoMode =
     location.pathname === "/demo" || location.pathname.startsWith("/demo/");
 
   const { user, signOut } = useAuth();
   const isVisitor = !user;
-
   const { preference, resolvedTheme, setPreference } = useTheme();
   const isDark = resolvedTheme === "dark";
 
@@ -55,12 +56,75 @@ export function AppLayout() {
   const isPlatformAdmin = user?.isPlatformAdmin === true;
   const isPlatformManager = user?.isPlatformManager === true;
   const canReviewExercises = user?.canReviewExercises === true;
-
   const canManagePlatform = isPlatformAdmin || isPlatformManager;
   const canAccessCatalogReview = isPlatformAdmin || canReviewExercises;
 
   // ============================================================
-  // ORGANIZAÇÕES DO USUÁRIO
+  // PERMISSÕES DE IMAGENS DO CATÁLOGO GLOBAL
+  // ============================================================
+
+  useEffect(() => {
+    if (isDemoMode || !userId) {
+      return;
+    }
+
+    let active = true;
+
+    getExerciseImagePermissions()
+      .then((permissions) => {
+        if (!active) return;
+
+        setImageCatalogAccess({
+          userId,
+          allowed:
+            permissions.canManage ||
+            permissions.canPropose ||
+            permissions.canApprove,
+        });
+      })
+      .catch(() => {
+        if (!active) return;
+
+        setImageCatalogAccess({
+          userId,
+          allowed: false,
+        });
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isDemoMode, userId]);
+
+  const canAccessImageCatalog =
+    imageCatalogAccess !== null &&
+    imageCatalogAccess.userId === userId &&
+    imageCatalogAccess.allowed;
+
+  // ============================================================
+  // PÁGINAS ADMINISTRATIVAS GLOBAIS
+  // ============================================================
+
+  const isGlobalCatalogRoute =
+    location.pathname === "/admin/catalog" ||
+    location.pathname.startsWith("/admin/catalog/") ||
+    location.pathname === "/admin/exercises" ||
+    location.pathname.startsWith("/admin/exercises/") ||
+    location.pathname === "/admin/images" ||
+    location.pathname.startsWith("/admin/images/");
+
+  const isGlobalPlatformRoute =
+    location.pathname === "/admin/organizations" ||
+    location.pathname.startsWith("/admin/organizations/");
+
+  const canUseGlobalCatalog =
+    isGlobalCatalogRoute && (canAccessCatalogReview || canAccessImageCatalog);
+
+  const canUseGlobalPlatform = isGlobalPlatformRoute && canManagePlatform;
+  const canBypassOrganization = canUseGlobalCatalog || canUseGlobalPlatform;
+
+  // ============================================================
+  // CARREGAMENTO DAS ORGANIZAÇÕES
   // ============================================================
 
   useEffect(() => {
@@ -79,14 +143,14 @@ export function AppLayout() {
           userId,
           organizations: data,
         });
-
         setOrganizationError(null);
       })
       .catch(() => {
         if (!active) return;
 
         setOrganizationError(
-          "Não foi possível carregar suas organizações. Atualize a página para tentar novamente.",
+          "Não foi possível carregar suas organizações. " +
+            "Atualize a página para tentar novamente.",
         );
       });
 
@@ -103,35 +167,41 @@ export function AppLayout() {
       : [];
 
   // ============================================================
-  // VALIDAR ORGANIZAÇÃO SALVA NO NAVEGADOR
+  // VALIDAÇÃO DA ORGANIZAÇÃO SELECIONADA
   // ============================================================
-
-  const storedOrganizationId = getActiveOrganizationId();
 
   const organizationIsValid =
     organizationLoaded &&
-    !!storedOrganizationId &&
+    activeOrganizationId !== null &&
     managedOrganizations.some(
-      (membership) => membership.organization.id === storedOrganizationId,
+      (membership) => membership.organization.id === activeOrganizationId,
     );
 
   const resolvedOrganizationId = organizationIsValid
-    ? storedOrganizationId
+    ? activeOrganizationId
     : null;
 
   const organizationNeedsCorrection =
     organizationLoaded &&
     !isDemoMode &&
-    storedOrganizationId !== resolvedOrganizationId;
+    activeOrganizationId !== resolvedOrganizationId;
 
   useEffect(() => {
-    if (isDemoMode || !userId || !organizationLoaded) {
+    if (
+      isDemoMode ||
+      !userId ||
+      !organizationLoaded ||
+      !organizationNeedsCorrection
+    ) {
       return;
     }
 
-    if (organizationNeedsCorrection) {
+    const timeout = window.setTimeout(() => {
       setActiveOrganizationId(resolvedOrganizationId);
-    }
+      setActiveOrganizationIdState(resolvedOrganizationId);
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
   }, [
     isDemoMode,
     userId,
@@ -153,26 +223,21 @@ export function AppLayout() {
       (membership) => membership.organization.id === organizationId,
     );
 
-    if (!allowed) {
-      return;
-    }
+    if (!allowed) return;
 
     setActiveOrganizationId(organizationId);
     setActiveOrganizationIdState(organizationId);
-
     closeMenu();
     navigate("/", { replace: true });
-
     window.location.reload();
   }
 
   function handleLogout() {
     closeMenu();
-
     setActiveOrganizationId(null);
     setActiveOrganizationIdState(null);
     setOrganizationResult(null);
-
+    setImageCatalogAccess(null);
     signOut();
     navigate("/login", { replace: true });
   }
@@ -192,7 +257,10 @@ export function AppLayout() {
     : "bg-white text-gray-900 border-r border-gray-200";
 
   const navigationBaseClassName =
-    "block rounded-lg px-4 py-3 no-underline transition-all duration-200 ease-in-out focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-500";
+    "block rounded-lg px-4 py-3 no-underline " +
+    "transition-all duration-200 ease-in-out " +
+    "focus-visible:outline-2 focus-visible:outline-offset-2 " +
+    "focus-visible:outline-green-500";
 
   const getNavigationClassName = ({ isActive }: { isActive: boolean }) =>
     [
@@ -217,7 +285,10 @@ export function AppLayout() {
     : "border-gray-200 !text-red-700 hover:!bg-red-50";
 
   const showAdministrationSection =
-    isDemoMode || canManagePlatform || canAccessCatalogReview;
+    isDemoMode ||
+    canManagePlatform ||
+    canAccessCatalogReview ||
+    canAccessImageCatalog;
 
   // ============================================================
   // CONTROLE DE INICIALIZAÇÃO
@@ -226,7 +297,12 @@ export function AppLayout() {
   const organizationReady =
     isDemoMode ||
     isVisitor ||
+    canBypassOrganization ||
     (organizationLoaded && !organizationNeedsCorrection);
+
+  // ============================================================
+  // INTERFACE
+  // ============================================================
 
   return (
     <div className="flex min-h-screen min-w-0 flex-col md:grid md:grid-cols-[16rem_minmax(0,1fr)]">
@@ -421,7 +497,21 @@ export function AppLayout() {
                   </p>
                 </div>
 
-                {(isDemoMode || canAccessCatalogReview) && (
+                {(isDemoMode ||
+                  canAccessCatalogReview ||
+                  canAccessImageCatalog) && (
+                  <NavLink
+                    to="/admin/catalog"
+                    className={getNavigationClassName}
+                    onClick={closeMenu}
+                  >
+                    Catálogo Global de Exercícios
+                  </NavLink>
+                )}
+
+                {(isDemoMode ||
+                  canAccessCatalogReview ||
+                  canAccessImageCatalog) && (
                   <NavLink
                     to={
                       isDemoMode ? "/demo/admin/exercises" : "/admin/exercises"
@@ -433,7 +523,9 @@ export function AppLayout() {
                   </NavLink>
                 )}
 
-                {(isDemoMode || canAccessCatalogReview) && (
+                {(isDemoMode ||
+                  canAccessCatalogReview ||
+                  canAccessImageCatalog) && (
                   <NavLink
                     to={isDemoMode ? "/demo/admin/images" : "/admin/images"}
                     className={getNavigationClassName}
@@ -490,10 +582,9 @@ export function AppLayout() {
                         : themeButtonClassName,
                     ].join(" ")}
                   >
-                    <span aria-hidden="true" className="text-lg leading-none">
+                    <span aria-hidden="true" className="text-lg">
                       {option.icon}
                     </span>
-
                     <span>{option.label}</span>
                   </button>
                 );
@@ -509,7 +600,6 @@ export function AppLayout() {
             {user && (
               <div className="mb-4 min-w-0 rounded-lg border border-border-default p-3">
                 <p className="break-words text-sm font-semibold">{user.name}</p>
-
                 <p
                   className={`mt-2 w-full min-w-0 break-all text-[10px] leading-relaxed ${mutedTextClassName}`}
                   title={user.email}
@@ -551,7 +641,7 @@ export function AppLayout() {
                 className={[
                   "flex min-h-11 w-full items-center justify-center",
                   "rounded-lg bg-green-600 px-4 py-3",
-                  "text-sm font-semibold !text-white no-underline",
+                  "text-sm font-semibold !text-white",
                   "transition-colors hover:bg-green-700",
                   "focus-visible:outline-2 focus-visible:outline-offset-2",
                   "focus-visible:outline-green-500",
@@ -588,7 +678,6 @@ export function AppLayout() {
             <h2 className="mb-2 text-lg font-semibold">
               Não foi possível carregar suas organizações
             </h2>
-
             <p className="text-sm">{organizationError}</p>
           </div>
         ) : (

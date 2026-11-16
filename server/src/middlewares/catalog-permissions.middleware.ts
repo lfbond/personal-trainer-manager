@@ -1,4 +1,3 @@
-
 import type {
   NextFunction,
   Request,
@@ -15,11 +14,17 @@ export type CatalogPermission =
   | 'catalog:change-status'
   | 'catalog:suspend-safety'
   | 'catalog:delete'
+  | 'catalog:image-manage'
+  | 'catalog:image-propose'
+  | 'catalog:image-approve'
 
 interface CatalogAccess {
   isOwner: boolean
   isAdmin: boolean
   isReviewer: boolean
+  canManageImages: boolean
+  canProposeImages: boolean
+  canApproveImages: boolean
 }
 
 function hasPermission(
@@ -30,10 +35,22 @@ function hasPermission(
     isOwner,
     isAdmin,
     isReviewer,
+    canManageImages,
+    canProposeImages,
+    canApproveImages,
   } = access
 
   switch (permission) {
     case 'catalog:read':
+      return (
+        isOwner ||
+        isAdmin ||
+        isReviewer ||
+        canManageImages ||
+        canProposeImages ||
+        canApproveImages
+      )
+
     case 'catalog:manage':
     case 'catalog:review':
       return isOwner || isAdmin || isReviewer
@@ -46,6 +63,15 @@ function hasPermission(
 
     case 'catalog:delete':
       return isOwner
+
+    case 'catalog:image-manage':
+      return canManageImages
+
+    case 'catalog:image-propose':
+      return canProposeImages
+
+    case 'catalog:image-approve':
+      return canApproveImages
 
     default:
       return false
@@ -78,6 +104,9 @@ export function requireCatalogPermission(
           isActive: true,
           isPlatformAdmin: true,
           canReviewExercises: true,
+          canManageExerciseImages: true,
+          canProposeExerciseImages: true,
+          canApproveExerciseImages: true,
         },
       })
 
@@ -92,6 +121,9 @@ export function requireCatalogPermission(
         isOwner: isPlatformOwner(userId),
         isAdmin: user.isPlatformAdmin,
         isReviewer: user.canReviewExercises,
+        canManageImages: user.canManageExerciseImages,
+        canProposeImages: user.canProposeExerciseImages,
+        canApproveImages: user.canApproveExerciseImages,
       }
 
       if (!hasPermission(permission, access)) {
@@ -109,6 +141,9 @@ export function requireCatalogPermission(
   }
 }
 
+export const requireCatalogReader =
+  requireCatalogPermission('catalog:read')
+
 export const requireCatalogManager =
   requireCatalogPermission('catalog:manage')
 
@@ -120,3 +155,12 @@ export const requireCatalogSafetyModerator =
 
 export const requireCatalogDeletion =
   requireCatalogPermission('catalog:delete')
+
+export const requireCatalogImageManager =
+  requireCatalogPermission('catalog:image-manage')
+
+export const requireCatalogImageProposer =
+  requireCatalogPermission('catalog:image-propose')
+
+export const requireCatalogImageApprover =
+  requireCatalogPermission('catalog:image-approve')

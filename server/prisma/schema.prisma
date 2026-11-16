@@ -184,6 +184,18 @@ enum BodySide {
   RIGHT
 }
 
+enum ExerciseImageProposalAction {
+  ADD
+  REPLACE
+  REMOVE
+}
+
+enum ExerciseImageProposalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model Organization {
   id        String   @id @default(uuid()) @db.Uuid
   name      String
@@ -248,6 +260,15 @@ model User {
 
   // Permissão para revisão técnica do catálogo global.
   canReviewExercises Boolean @default(false)
+
+  // Permissões exclusivas do gerenciamento de imagens.
+  canManageExerciseImages  Boolean @default(false)
+  canProposeExerciseImages Boolean @default(false)
+  canApproveExerciseImages Boolean @default(false)
+
+  // Histórico de propostas de imagens.
+  imageProposalsCreated  ExerciseImageProposal[] @relation("ImageProposalAuthor")
+  imageProposalsReviewed ExerciseImageProposal[] @relation("ImageProposalReviewer")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -483,10 +504,10 @@ model Exercise {
 }
 
 model ExerciseVariation {
-  id                   String              @id @default(uuid()) @db.Uuid
-  exerciseId           String              @db.Uuid
-  trainerId            String?             @db.Uuid
-  code                 String              @unique
+  id                   String                  @id @default(uuid()) @db.Uuid
+  exerciseId           String                  @db.Uuid
+  trainerId            String?                 @db.Uuid
+  code                 String                  @unique
   name                 String
   category             ExerciseCategory
   level                ExerciseLevel
@@ -497,14 +518,15 @@ model ExerciseVariation {
   safetyNotes          String?
   muscleExplanation    String?
   imageUrl             String?
-  imageReviewStatus    ExerciseImageStatus @default(PENDING)
+  imageReviewStatus    ExerciseImageStatus     @default(PENDING)
+  imageProposals       ExerciseImageProposal[]
   imageReviewNotes     String?
   imageReviewedAt      DateTime?
   videoUrl             String?
-  status               ExerciseStatus      @default(DRAFT)
-  needsEditorialReview Boolean             @default(false)
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
+  status               ExerciseStatus          @default(DRAFT)
+  needsEditorialReview Boolean                 @default(false)
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
 
   exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
   trainer  Trainer? @relation(fields: [trainerId], references: [id], onDelete: Restrict)
@@ -778,4 +800,37 @@ model AssessmentBioimpedance {
   updatedAt DateTime @updatedAt
 
   assessment PhysicalAssessment @relation(fields: [assessmentId], references: [id], onDelete: Restrict)
+}
+
+model ExerciseImageProposal {
+  id String @id @default(uuid()) @db.Uuid
+
+  exerciseVariationId String  @db.Uuid
+  proposedById        String  @db.Uuid
+  reviewedById        String? @db.Uuid
+
+  action ExerciseImageProposalAction
+
+  // Imagem sugerida; null para remoção.
+  proposedImageUrl String?
+
+  // Imagem oficial no momento da proposta.
+  previousImageUrl String?
+
+  status ExerciseImageProposalStatus @default(PENDING)
+
+  reviewNotes String?
+
+  createdAt  DateTime  @default(now())
+  reviewedAt DateTime?
+
+  exerciseVariation ExerciseVariation @relation(fields: [exerciseVariationId], references: [id], onDelete: Restrict)
+
+  proposedBy User @relation("ImageProposalAuthor", fields: [proposedById], references: [id], onDelete: Restrict)
+
+  reviewedBy User? @relation("ImageProposalReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+
+  @@index([exerciseVariationId, status])
+  @@index([proposedById])
+  @@index([status, createdAt])
 }

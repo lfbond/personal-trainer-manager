@@ -3,14 +3,18 @@ import { createBrowserRouter } from "react-router-dom";
 import { AppLayout } from "../layouts/AppLayouts";
 import { ProtectedRoute } from "./ProtectedRoute";
 import { PermissionRoute } from "./PermissionRoute";
+import { CatalogImageRoute } from "./CatalogImageRoute";
 
 import { Login } from "../pages/Login";
 import { Dashboard } from "../pages/Dashboard";
 import { Students } from "../pages/Students";
 import { Exercises } from "../pages/Exercises";
 import { Workouts } from "../pages/Workouts";
+
 import { AdminExercises } from "../pages/AdminExercises";
 import { AdminExerciseImages } from "../pages/AdminExerciseImages";
+import { AdminExerciseCatalog } from "../pages/AdminExerciseCatalog";
+
 import { PublicDemo } from "../pages/PublicDemo";
 import { PublicCatalog } from "../pages/PublicCatalog";
 import { AcceptInvitation } from "../pages/AcceptInvitation";
@@ -85,7 +89,16 @@ export const router = createBrowserRouter([
             element: <Workouts />,
           },
           {
-            element: <PermissionRoute permission="catalogReviewer" />,
+            element: <CatalogImageRoute />,
+            children: [
+              {
+                path: "admin/catalog",
+                element: <AdminExerciseCatalog />,
+              },
+            ],
+          },
+          {
+            element: <PermissionRoute permission="catalogReader" />,
             children: [
               {
                 path: "admin/exercises",

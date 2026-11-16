@@ -1,4 +1,3 @@
-
 import { Router, type RequestHandler } from 'express'
 import { z } from 'zod'
 
@@ -6,6 +5,7 @@ import { prisma } from '../lib/prisma.js'
 import { AppError } from '../lib/app-error.js'
 import { isPlatformOwner } from '../lib/platform-owner.js'
 import { requireAuth } from '../middlewares/auth.middleware.js'
+import { requireCatalogReader } from '../middlewares/catalog-permissions.middleware.js'
 
 export const exerciseEditorialRoutes = Router()
 
@@ -32,6 +32,14 @@ function authenticatedUserId(
 // ============================================================
 // Administradores não recebem automaticamente a permissão
 // de aprovação científica.
+//
+// Esta permissão é exclusiva para operações de escrita:
+// - Aprovação;
+// - Rejeição;
+// - Suspensão;
+// - Reativação.
+//
+// As consultas utilizam requireCatalogReader.
 
 const requireScientificReviewer: RequestHandler = async (
   _req,
@@ -86,10 +94,14 @@ const moderationBodySchema = z.object({
 // FILA DE REVISÃO CIENTÍFICA
 // GET /exercises/editorial/queue
 // ============================================================
+//
+// CORREÇÃO:
+// Usuários com permissão catalog:read podem consultar
+// a fila sem receber autorização para aprovar ou rejeitar.
 
 exerciseEditorialRoutes.get(
   '/queue',
-  requireScientificReviewer,
+  requireCatalogReader,
   async (req, res) => {
     const filters = queueQuerySchema.parse(req.query)
 
@@ -155,6 +167,8 @@ exerciseEditorialRoutes.get(
 // APROVAR VARIAÇÃO
 // PATCH /exercises/editorial/variations/:id/approve
 // ============================================================
+//
+// Permissão exclusiva de auditor científico preservada.
 
 exerciseEditorialRoutes.patch(
   '/variations/:id/approve',
@@ -233,6 +247,8 @@ exerciseEditorialRoutes.patch(
 // REJEITAR VARIAÇÃO
 // POST /exercises/editorial/variations/:id/reject
 // ============================================================
+//
+// Permissão exclusiva de auditor científico preservada.
 
 exerciseEditorialRoutes.post(
   '/variations/:id/reject',
@@ -291,6 +307,7 @@ exerciseEditorialRoutes.post(
 // REENVIAR VARIAÇÃO CORRIGIDA
 // POST /exercises/editorial/variations/:id/resubmit
 // ============================================================
+//
 // Não exige permissão científica.
 // Exige responsabilidade sobre a variação.
 //
@@ -484,6 +501,8 @@ exerciseEditorialRoutes.post(
 // SUSPENDER POR SEGURANÇA
 // POST /exercises/editorial/variations/:id/suspend
 // ============================================================
+//
+// Permissão exclusiva de auditor científico preservada.
 
 exerciseEditorialRoutes.post(
   '/variations/:id/suspend',
@@ -541,6 +560,8 @@ exerciseEditorialRoutes.post(
 // REATIVAR APÓS REVISÃO CIENTÍFICA
 // POST /exercises/editorial/variations/:id/reinstate
 // ============================================================
+//
+// Permissão exclusiva de auditor científico preservada.
 
 exerciseEditorialRoutes.post(
   '/variations/:id/reinstate',
@@ -636,10 +657,16 @@ exerciseEditorialRoutes.post(
 // HISTÓRICO DE MODERAÇÃO
 // GET /exercises/editorial/variations/:id/history
 // ============================================================
+//
+// CORREÇÃO:
+// Consulta disponível para usuários autorizados
+// à leitura do catálogo.
+//
+// Não concede acesso às operações de moderação.
 
 exerciseEditorialRoutes.get(
   '/variations/:id/history',
-  requireScientificReviewer,
+  requireCatalogReader,
   async (req, res) => {
     const variationId = idSchema.parse(req.params.id)
 
