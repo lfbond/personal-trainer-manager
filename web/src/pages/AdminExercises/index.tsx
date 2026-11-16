@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import axios from "axios";
 
 import { PageHeader } from "../../components/PageHeader";
@@ -209,17 +210,6 @@ export function AdminExercises() {
       return matchesSearch && matchesGroup && matchesCategory && matchesLevel;
     });
   }, [variations, search, group, category, level]);
-
-  function openVariation(variation: ExerciseVariation) {
-    setSelectedVariation(variation);
-    setRejectionReason("");
-    setScientificReferences("");
-    setHistory([]);
-    setHistoryError("");
-    setShowHistory(false);
-    setError("");
-    setFeedback("");
-  }
 
   function closeVariation() {
     if (processingId !== null) return;
@@ -525,14 +515,14 @@ export function AdminExercises() {
               )}
 
               <div className="mt-5 border-t border-border-default pt-4">
-                <button
-                  type="button"
-                  onClick={() => openVariation(variation)}
-                  disabled={processingId !== null}
-                  className={`${buttonClass} border border-border-default text-text-primary`}
+                <Link
+                  to={`/admin/catalog?exerciseId=${encodeURIComponent(
+                    variation.exercise.id,
+                  )}&variationId=${encodeURIComponent(variation.id)}`}
+                  className="inline-flex min-h-11 items-center justify-center rounded-lg border border-primary bg-primary px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-hover"
                 >
-                  Abrir revisão científica
-                </button>
+                  Corrigir ficha técnica
+                </Link>
               </div>
             </article>
           ))}

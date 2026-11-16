@@ -1,4 +1,3 @@
-
 import { prisma } from '../lib/prisma.js'
 import { AppError } from '../lib/app-error.js'
 import { isPlatformOwner } from '../lib/platform-owner.js'
@@ -33,6 +32,41 @@ async function ensureTrainerAccess(
   if (!allowed) {
     throw new AppError(
       'Treinador sem permissão nesta organização.',
+      403,
+    )
+  }
+}
+
+// ============================================================
+// LEITURA DO CATÁLOGO GLOBAL
+// ============================================================
+
+async function ensureCatalogReadAccess(userId: string) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      isActive: true,
+      isPlatformAdmin: true,
+      canReviewExercises: true,
+      canManageExerciseImages: true,
+      canProposeExerciseImages: true,
+      canApproveExerciseImages: true,
+    },
+  })
+
+  if (
+    !user?.isActive ||
+    !(
+      isPlatformOwner(userId) ||
+      user.isPlatformAdmin ||
+      user.canReviewExercises ||
+      user.canManageExerciseImages ||
+      user.canProposeExerciseImages ||
+      user.canApproveExerciseImages
+    )
+  ) {
+    throw new AppError(
+      'Acesso de leitura ao catálogo não autorizado.',
       403,
     )
   }
@@ -99,6 +133,7 @@ export async function listExercises({
 
   // Somente variações ativas e aprovadas
   // podem aparecer no catálogo dos treinadores.
+
   const variationFilter: Prisma.ExerciseVariationWhereInput = {
     status: 'ACTIVE',
     needsEditorialReview: false,
@@ -128,6 +163,7 @@ export async function listExercises({
 
       // Não mostrar exercícios-base sem
       // variações disponíveis para prescrição.
+
       variations: {
         some: variationFilter,
       },
@@ -175,6 +211,7 @@ export async function createExercise({
   // O exercício-base não possui status próprio.
   // A disponibilidade depende das variações
   // aprovadas vinculadas a ele.
+
   return prisma.exercise.create({
     data: {
       code: data.code,
@@ -245,6 +282,7 @@ export async function createExerciseVariation({
 
       // Nenhuma variação criada por treinador
       // será publicada automaticamente.
+
       status: 'DRAFT',
       needsEditorialReview: true,
     },
@@ -336,6 +374,7 @@ export async function updateExerciseVariation({
 
   // Uma variação publicada não pode ser alterada
   // diretamente sem uma nova avaliação editorial.
+
   if (variation.status === 'ACTIVE') {
     throw new AppError(
       'Esta variação já foi aprovada. Para alterá-la, será necessário solicitar uma nova revisão editorial.',
@@ -345,6 +384,7 @@ export async function updateExerciseVariation({
 
   // Variações inativas não podem ser modificadas
   // pelo treinador sem autorização editorial.
+
   if (variation.status === 'INACTIVE') {
     throw new AppError(
       'Esta variação está inativa. Não é permitido editá-la sem uma nova autorização editorial.',
@@ -354,6 +394,7 @@ export async function updateExerciseVariation({
 
   // A condição no updateMany também protege contra
   // alterações de status entre a consulta e a gravação.
+
   const result =
     await prisma.exerciseVariation.updateMany({
       where: {
@@ -552,7 +593,7 @@ export async function listExerciseImageReviews({
   take = 50,
   skip = 0,
 }: ListImageReviewsParams) {
-  await ensureCatalogReviewerAccess(userId)
+  await ensureCatalogReadAccess(userId)
 
   if (
     status &&
@@ -612,7 +653,6 @@ export async function listExerciseImageReviews({
     prisma.exerciseVariation.count({
       where,
     }),
-
     prisma.exerciseVariation.findMany({
       where,
       select: {
@@ -863,14 +903,16 @@ export async function getGlobalExerciseById({
   userId: string
   exerciseId: string
 }) {
-  await ensureCatalogReviewerAccess(userId)
+  await ensureCatalogReadAccess(userId)
 
   const exercise = await prisma.exercise.findUnique({
     where: { id: exerciseId },
     include: {
       variations: {
+
         // O CRUD global não deve expor variações
         // particulares de outros treinadores.
+
         where: {
           trainerId: null,
         },
@@ -924,6 +966,7 @@ export async function updateGlobalExercise({
   // Como Exercise ainda não possui versionamento,
   // bloqueamos alterações quando já existem
   // variações ativas associadas.
+
   const activeVariations =
     await prisma.exerciseVariation.count({
       where: {
@@ -1000,6 +1043,7 @@ export async function createGlobalExerciseVariation({
 
       // Todas as novas variações globais
       // aguardam aprovação editorial.
+
       status: 'DRAFT',
       needsEditorialReview: true,
     },
@@ -1021,17 +1065,16 @@ export async function updateGlobalExerciseVariation({
 }) {
   await ensureCatalogReviewerAccess(userId)
 
-  const existing =
-    await prisma.exerciseVariation.findFirst({
-      where: {
-        id: variationId,
-        trainerId: null,
-      },
-      select: {
-        id: true,
-        status: true,
-      },
-    })
+  const existing = await prisma.exerciseVariation.findFirst({
+    where: {
+      id: variationId,
+      trainerId: null,
+    },
+    select: {
+      id: true,
+      status: true,
+    },
+  })
 
   if (!existing) {
     throw new AppError(
@@ -1040,38 +1083,20 @@ export async function updateGlobalExerciseVariation({
     )
   }
 
-  // Impede publicar alterações editoriais
-  // sem uma nova aprovação.
-  if (existing.status === 'ACTIVE') {
-    throw new AppError(
-      'Esta variação global está ativa. Para editá-la, será necessário solicitar uma nova revisão editorial.',
-      409,
-    )
-  }
-
-  if (existing.status === 'INACTIVE') {
-    throw new AppError(
-      'Esta variação global está inativa. É necessária autorização editorial antes de modificá-la.',
-      409,
-    )
-  }
-
-  const result =
-    await prisma.exerciseVariation.updateMany({
-      where: {
-        id: variationId,
-        trainerId: null,
-        status: 'DRAFT',
-      },
-      data: {
-        ...data,
-        needsEditorialReview: true,
-      },
-    })
+  const result = await prisma.exerciseVariation.updateMany({
+    where: {
+      id: variationId,
+      trainerId: null,
+      status: existing.status,
+    },
+    data: {
+      ...data,
+    },
+  })
 
   if (result.count !== 1) {
     throw new AppError(
-      'Não foi possível atualizar a variação global.',
+      'Não foi possível atualizar a variação global. Atualize a ficha e tente novamente.',
       409,
     )
   }
