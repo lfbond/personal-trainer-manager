@@ -18,8 +18,11 @@ export function CatalogImageRoute() {
 
   const userId = user?.id;
 
+  const canReviewCatalog =
+    user?.isPlatformAdmin === true || user?.canReviewExercises === true;
+
   useEffect(() => {
-    if (!isAuthenticated || !userId) {
+    if (!isAuthenticated || !userId || canReviewCatalog) {
       return;
     }
 
@@ -51,10 +54,14 @@ export function CatalogImageRoute() {
     return () => {
       active = false;
     };
-  }, [isAuthenticated, userId]);
+  }, [isAuthenticated, userId, canReviewCatalog]);
 
   if (!isAuthenticated || !user) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (canReviewCatalog) {
+    return <Outlet />;
   }
 
   const status: AccessState | "loading" =
