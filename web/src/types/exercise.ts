@@ -70,8 +70,21 @@ export interface ExerciseVariation {
   imageReviewedAt: string | null
   videoUrl: string | null
   status: ExerciseStatus
+  needsEditorialReview: boolean
   createdAt: string
   updatedAt: string
+  muscles?: ExerciseVariationMuscle[];
+}
+
+export interface ExerciseVariationMuscle {
+  muscleId: string;
+  role: "PRIMARY" | "SECONDARY";
+  explanation: string | null;
+  muscle: {
+    id: string;
+    code: string;
+    name: string;
+  };
 }
 
 /**

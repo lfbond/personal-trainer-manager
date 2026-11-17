@@ -1,4 +1,3 @@
-
 import type { RequestHandler } from 'express'
 import { z } from 'zod'
 
@@ -8,6 +7,8 @@ import {
   listExercisesQuerySchema,
   createExerciseVariationSchema,
   updateExerciseVariationSchema,
+  createExerciseSchema,
+  updateExerciseSchema,
 } from '../schemas/exercise.schema.js'
 
 import {
@@ -19,6 +20,11 @@ import {
   listExerciseImageReviews,
   reviewExerciseImage,
   reviewExerciseImagesBatch,
+  createGlobalExercise,
+  getGlobalExerciseById,
+  updateGlobalExercise,
+  createGlobalExerciseVariation,
+  updateGlobalExerciseVariation,
 } from '../services/exercise.service.js'
 
 import {
@@ -38,12 +44,26 @@ const imageReviewStatusSchema = z.enum([
 
 const listImageReviewsQuerySchema = z.object({
   status: imageReviewStatusSchema.optional(),
-  onlyWithoutImage: z.enum(['true', 'false'])
+
+  onlyWithoutImage: z
+    .enum(['true', 'false'])
     .transform(value => value === 'true')
     .optional(),
+
   search: z.string().trim().max(150).optional(),
-  take: z.coerce.number().int().min(1).max(100).default(50),
-  skip: z.coerce.number().int().min(0).default(0),
+
+  take: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(100)
+    .default(50),
+
+  skip: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .default(0),
 }).strict()
 
 const reviewImageBodySchema = z.object({
@@ -61,7 +81,8 @@ const reviewImageBodySchema = z.object({
 
 const batchReviewImagesBodySchema =
   reviewImageBodySchema.safeExtend({
-    variationIds: z.array(z.uuid())
+    variationIds: z
+      .array(z.uuid())
       .min(1)
       .max(266)
       .refine(
@@ -73,6 +94,12 @@ const batchReviewImagesBodySchema =
 // ============================================================
 // AUTENTICAÇÃO E CONTEXTO
 // ============================================================
+
+// Obtém o ID do usuário autenticado.
+//
+// Não concede permissões adicionais.
+// A autorização específica é validada pelo
+// middleware e pelo serviço correspondente.
 
 function getAuthenticatedUserId(
   res: Parameters<RequestHandler>[1],
@@ -89,11 +116,22 @@ function getAuthenticatedUserId(
   return userId
 }
 
+// Contexto utilizado nas operações de treinadores,
+// respeitando a organização selecionada.
+
 async function getAuthenticatedTrainerContext(
   res: Parameters<RequestHandler>[1],
 ) {
-  return getTrainerContext(getAuthenticatedUserId(res))
+  return getTrainerContext(
+    getAuthenticatedUserId(res),
+  )
 }
+
+// Contexto exclusivo para operações que exigem
+// autorização de auditor/revisor.
+//
+// Não deve ser utilizado em consultas que
+// permitem acesso somente de leitura.
 
 async function getAuthenticatedReviewerContext(
   res: Parameters<RequestHandler>[1],
@@ -109,7 +147,8 @@ async function getAuthenticatedReviewerContext(
 
 export const listExercisesController: RequestHandler =
   async (req, res) => {
-    const filters = listExercisesQuerySchema.parse(req.query)
+    const filters =
+      listExercisesQuerySchema.parse(req.query)
 
     const context =
       await getAuthenticatedTrainerContext(res)
@@ -148,15 +187,17 @@ export const createExerciseVariationController:
 
 export const getExerciseVariationController:
   RequestHandler = async (req, res) => {
-    const variationId = z.uuid().parse(req.params.id)
+    const variationId =
+      z.uuid().parse(req.params.id)
 
     const context =
       await getAuthenticatedTrainerContext(res)
 
-    const variation = await getExerciseVariationById({
-      variationId,
-      ...context,
-    })
+    const variation =
+      await getExerciseVariationById({
+        variationId,
+        ...context,
+      })
 
     res.status(200).json(variation)
   }
@@ -167,7 +208,8 @@ export const getExerciseVariationController:
 
 export const updateExerciseVariationController:
   RequestHandler = async (req, res) => {
-    const variationId = z.uuid().parse(req.params.id)
+    const variationId =
+      z.uuid().parse(req.params.id)
 
     const data =
       updateExerciseVariationSchema.parse(req.body)
@@ -175,11 +217,12 @@ export const updateExerciseVariationController:
     const context =
       await getAuthenticatedTrainerContext(res)
 
-    const variation = await updateExerciseVariation({
-      variationId,
-      ...context,
-      data,
-    })
+    const variation =
+      await updateExerciseVariation({
+        variationId,
+        ...context,
+        data,
+      })
 
     res.status(200).json(variation)
   }
@@ -190,15 +233,17 @@ export const updateExerciseVariationController:
 
 export const deleteExerciseVariationController:
   RequestHandler = async (req, res) => {
-    const variationId = z.uuid().parse(req.params.id)
+    const variationId =
+      z.uuid().parse(req.params.id)
 
     const context =
       await getAuthenticatedTrainerContext(res)
 
-    const result = await deleteExerciseVariation({
-      variationId,
-      ...context,
-    })
+    const result =
+      await deleteExerciseVariation({
+        variationId,
+        ...context,
+      })
 
     res.status(200).json(result)
   }
@@ -207,16 +252,31 @@ export const deleteExerciseVariationController:
 // LISTAR IMAGENS PARA REVISÃO
 // ============================================================
 
+// CORREÇÃO:
+//
+// Antes, esta operação chamava
+// getAuthenticatedReviewerContext(), impedindo
+// usuários com permissão somente de leitura.
+//
+// Agora utiliza o ID do usuário autenticado.
+//
+// A autorização de leitura continua sendo
+// verificada por:
+// 1. requireCatalogReader (middleware);
+// 2. ensureCatalogReadAccess (serviço).
+//
+// Esta alteração NÃO concede permissão
+// para aprovar, rejeitar ou editar imagens.
+
 export const listExerciseImageReviewsController:
   RequestHandler = async (req, res) => {
     const filters =
       listImageReviewsQuerySchema.parse(req.query)
 
-    const context =
-      await getAuthenticatedReviewerContext(res)
+    const userId = getAuthenticatedUserId(res)
 
     const result = await listExerciseImageReviews({
-      ...context,
+      userId,
       ...filters,
     })
 
@@ -227,9 +287,12 @@ export const listExerciseImageReviewsController:
 // APROVAR / REJEITAR UMA IMAGEM
 // ============================================================
 
+// Mantém o contexto de revisor autorizado.
+
 export const reviewExerciseImageController:
   RequestHandler = async (req, res) => {
-    const variationId = z.uuid().parse(req.params.id)
+    const variationId =
+      z.uuid().parse(req.params.id)
 
     const data =
       reviewImageBodySchema.parse(req.body)
@@ -250,6 +313,8 @@ export const reviewExerciseImageController:
 // APROVAR / REJEITAR IMAGENS EM LOTE
 // ============================================================
 
+// Mantém o contexto de revisor autorizado.
+
 export const reviewExerciseImagesBatchController:
   RequestHandler = async (req, res) => {
     const data =
@@ -264,4 +329,112 @@ export const reviewExerciseImagesBatchController:
     })
 
     res.status(200).json(result)
+  }
+
+// ============================================================
+// CRIAR EXERCÍCIO GLOBAL
+// ============================================================
+
+export const createGlobalExerciseController:
+  RequestHandler = async (req, res) => {
+    const data =
+      createExerciseSchema.parse(req.body)
+
+    const userId = getAuthenticatedUserId(res)
+
+    const exercise = await createGlobalExercise({
+      userId,
+      data,
+    })
+
+    res.status(201).json(exercise)
+  }
+
+// ============================================================
+// CONSULTAR EXERCÍCIO GLOBAL
+// ============================================================
+
+// Consulta autorizada pelo middleware de leitura
+// e pelo serviço getGlobalExerciseById().
+
+export const getGlobalExerciseController:
+  RequestHandler = async (req, res) => {
+    const exerciseId =
+      z.uuid().parse(req.params.id)
+
+    const userId = getAuthenticatedUserId(res)
+
+    const exercise = await getGlobalExerciseById({
+      userId,
+      exerciseId,
+    })
+
+    res.status(200).json(exercise)
+  }
+
+// ============================================================
+// ATUALIZAR EXERCÍCIO GLOBAL
+// ============================================================
+
+export const updateGlobalExerciseController:
+  RequestHandler = async (req, res) => {
+    const exerciseId =
+      z.uuid().parse(req.params.id)
+
+    const data =
+      updateExerciseSchema.parse(req.body)
+
+    const userId = getAuthenticatedUserId(res)
+
+    const exercise = await updateGlobalExercise({
+      userId,
+      exerciseId,
+      data,
+    })
+
+    res.status(200).json(exercise)
+  }
+
+// ============================================================
+// CRIAR VARIAÇÃO GLOBAL
+// ============================================================
+
+export const createGlobalVariationController:
+  RequestHandler = async (req, res) => {
+    const data =
+      createExerciseVariationSchema.parse(req.body)
+
+    const userId = getAuthenticatedUserId(res)
+
+    const variation =
+      await createGlobalExerciseVariation({
+        userId,
+        data,
+      })
+
+    res.status(201).json(variation)
+  }
+
+// ============================================================
+// ATUALIZAR VARIAÇÃO GLOBAL
+// ============================================================
+
+export const updateGlobalVariationController:
+  RequestHandler = async (req, res) => {
+    const variationId =
+      z.uuid().parse(req.params.id)
+
+    const data =
+      updateExerciseVariationSchema.parse(req.body)
+
+    const userId = getAuthenticatedUserId(res)
+
+    const variation =
+      await updateGlobalExerciseVariation({
+        userId,
+        variationId,
+        data,
+      })
+
+    res.status(200).json(variation)
   }

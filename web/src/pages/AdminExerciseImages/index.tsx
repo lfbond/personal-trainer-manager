@@ -2,107 +2,60 @@ import { useCallback, useEffect, useState } from "react";
 import axios from "axios";
 
 import { PageHeader } from "../../components/PageHeader";
-
 import {
   getExerciseImageReviews,
   reviewExerciseImage,
-  reviewExerciseImagesBatch,
   type ImageReviewVariation,
 } from "../../services/exercise-images";
-
 import type { ExerciseImageStatus } from "../../types/exercise";
 
 const PAGE_SIZE = 50;
 
+const inputClass =
+  "min-h-11 w-full rounded-lg border border-border-default " +
+  "bg-surface px-3 py-2 text-text-primary";
+
 const buttonClass =
-  "min-h-11 rounded-lg px-4 py-2 text-sm font-semibold " +
+  "min-h-11 rounded-lg border border-border-default px-4 py-2 " +
+  "text-sm font-semibold text-text-primary " +
   "disabled:cursor-not-allowed disabled:opacity-50";
 
-const statusLabels: Record<ExerciseImageStatus, string> = {
+const labels: Record<ExerciseImageStatus, string> = {
   PENDING: "Pendente",
   APPROVED: "Aprovada",
   REJECTED: "Rejeitada",
 };
 
-function getErrorMessage(error: unknown): string {
+function getError(error: unknown): string {
   if (axios.isAxiosError(error)) {
-    const status = error.response?.status;
-    const data: unknown = error.response?.data;
-
-    let apiMessage: string | undefined;
-
-    if (
-      typeof data === "object" &&
-      data !== null &&
-      "message" in data &&
-      typeof data.message === "string"
-    ) {
-      apiMessage = data.message;
-    }
-
-    if (!error.response) {
-      return (
-        "Não foi possível conectar ao backend. " +
-        "Verifique se a API está iniciada."
-      );
-    }
-
-    if (status === 401) {
-      return (
-        "Erro 401 — A API não reconheceu a autenticação. " +
-        (apiMessage ?? "Verifique o envio do token JWT.")
-      );
-    }
-
-    if (status === 403) {
-      return (
-        "Erro 403 — Seu usuário não possui permissão " +
-        "para revisar imagens. " +
-        (apiMessage ?? "")
-      );
-    }
-
-    if (status === 404) {
-      return "Erro 404 — Endpoint não encontrado. " + (apiMessage ?? "");
-    }
-
-    return (
-      `Erro HTTP ${status ?? "desconhecido"} — ` + (apiMessage ?? error.message)
-    );
+    const message = error.response?.data?.message;
+    return typeof message === "string"
+      ? message
+      : `Falha na API (${error.response?.status ?? "conexão"}).`;
   }
 
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return "Ocorreu um erro inesperado.";
+  return error instanceof Error
+    ? error.message
+    : "Não foi possível concluir a operação.";
 }
 
-function ImagePreview({
-  imageUrl,
-  name,
-}: {
-  imageUrl: string | null;
-  name: string;
-}) {
+function Preview({ variation }: { variation: ImageReviewVariation }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
 
-  const failed = Boolean(imageUrl) && failedUrl === imageUrl;
-
   return (
-    <div className="mb-3 flex h-48 items-center justify-center overflow-hidden rounded-lg border border-border-default bg-page">
-      {imageUrl && !failed ? (
+    <div className="flex h-52 items-center justify-center overflow-hidden rounded-lg border border-border-default bg-page">
+      {variation.imageUrl && failedUrl !== variation.imageUrl ? (
         <img
-          src={imageUrl}
-          alt={`Demonstração: ${name}`}
+          src={variation.imageUrl}
+          alt={`Imagem de ${variation.name}`}
           loading="lazy"
-          onError={() => setFailedUrl(imageUrl)}
+          onError={() => setFailedUrl(variation.imageUrl)}
           className="h-full w-full object-contain"
         />
       ) : (
-        <p className="p-3 text-center text-sm text-text-secondary">
-          {failed
-            ? "Não foi possível carregar a imagem."
+        <p className="p-4 text-center text-sm text-text-secondary">
+          {variation.imageUrl
+            ? "Falha ao carregar a imagem."
             : "Imagem não cadastrada."}
         </p>
       )}
@@ -115,411 +68,352 @@ export function AdminExerciseImages() {
   const [total, setTotal] = useState(0);
 
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<ExerciseImageStatus | "">("PENDING");
-
+  const [status, setStatus] = useState<ExerciseImageStatus | "">("");
+  const [onlyWithoutImage, setOnlyWithoutImage] = useState(false);
   const [skip, setSkip] = useState(0);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const [loading, setLoading] = useState(true);
-  const [processing, setProcessing] = useState(false);
-
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [feedback, setFeedback] = useState("");
 
-  const loadImages = useCallback(async () => {
+  const [selected, setSelected] = useState<ImageReviewVariation | null>(null);
+  const [decision, setDecision] = useState<ExerciseImageStatus>("PENDING");
+  const [notes, setNotes] = useState("");
+
+  const load = useCallback(async () => {
     setLoading(true);
     setError("");
 
     try {
-      const result = await getExerciseImageReviews({
-        status: status || undefined,
+      const response = await getExerciseImageReviews({
         search: search.trim() || undefined,
+        status: status || undefined,
+        onlyWithoutImage: onlyWithoutImage || undefined,
         take: PAGE_SIZE,
         skip,
       });
 
-      setVariations(result.variations);
-      setTotal(result.total);
-      setSelectedIds([]);
+      setVariations(response.variations);
+      setTotal(response.total);
     } catch (err) {
       setVariations([]);
       setTotal(0);
-      setSelectedIds([]);
-
-      // Não encerramos a sessão automaticamente.
-      // Exibimos a resposta real da API.
-      setError(getErrorMessage(err));
+      setError(getError(err));
     } finally {
       setLoading(false);
     }
-  }, [status, search, skip]);
+  }, [search, status, onlyWithoutImage, skip]);
 
   useEffect(() => {
-    // Inicia o carregamento após a execução do efeito,
-    // evitando atualização síncrona de estado nele.
-    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      void load();
+    }, 0);
 
-    async function fetchImages() {
-      try {
-        const result = await getExerciseImageReviews({
-          status: status || undefined,
-          search: search.trim() || undefined,
-          take: PAGE_SIZE,
-          skip,
-        });
+    return () => window.clearTimeout(timeout);
+  }, [load]);
 
-        if (controller.signal.aborted) return;
-
-        setVariations(result.variations);
-        setTotal(result.total);
-        setSelectedIds([]);
-        setError("");
-      } catch (err) {
-        if (controller.signal.aborted) return;
-
-        setVariations([]);
-        setTotal(0);
-        setSelectedIds([]);
-        setError(getErrorMessage(err));
-      } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
-      }
-    }
-
-    void fetchImages();
-
-    return () => {
-      controller.abort();
-    };
-  }, [status, search, skip]);
-
-  function resetPagination() {
-    setSkip(0);
-    setSelectedIds([]);
+  function resetSelection() {
+    setSelected(null);
+    setNotes("");
+    setDecision("PENDING");
   }
 
-  function toggleSelection(id: string) {
-    setSelectedIds((current) =>
-      current.includes(id)
-        ? current.filter((item) => item !== id)
-        : [...current, id],
-    );
-  }
+  function openReview(
+    variation: ImageReviewVariation,
+    nextDecision: ExerciseImageStatus,
+  ) {
+    if (loading || saving) return;
 
-  function selectAllVisible() {
-    const eligibleIds = variations
-      .filter((item) => Boolean(item.imageUrl))
-      .map((item) => item.id);
-
-    if (eligibleIds.length === 0) {
+    if (!variation.imageUrl && nextDecision !== "PENDING") {
+      setError("Uma imagem inexistente não pode ser aprovada ou rejeitada.");
       return;
     }
 
-    const allSelected = eligibleIds.every((id) => selectedIds.includes(id));
-
-    setSelectedIds(allSelected ? [] : eligibleIds);
-  }
-
-  async function handleReview(
-    variation: ImageReviewVariation,
-    decision: ExerciseImageStatus,
-  ) {
-    if (processing) return;
-
-    let notes: string | null = null;
-
-    if (decision === "REJECTED") {
-      const input = window.prompt(`Motivo da rejeição de "${variation.name}":`);
-
-      if (input === null) return;
-
-      notes = input.trim();
-
-      if (!notes) {
-        setError("Informe uma justificativa para rejeitar.");
-        return;
-      }
-    } else {
-      const confirmed = window.confirm(
-        `Alterar a imagem de "${variation.name}" ` +
-          `para ${statusLabels[decision]}?`,
-      );
-
-      if (!confirmed) return;
-    }
-
-    setProcessing(true);
+    setSelected(variation);
+    setDecision(nextDecision);
+    setNotes(variation.imageReviewNotes ?? "");
     setError("");
     setFeedback("");
-
-    try {
-      await reviewExerciseImage(variation.id, {
-        status: decision,
-        notes,
-      });
-
-      setFeedback(`Imagem de "${variation.name}" atualizada com sucesso.`);
-
-      await loadImages();
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setProcessing(false);
-    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  async function handleBatchReview(decision: ExerciseImageStatus) {
-    if (processing || selectedIds.length === 0) return;
+  async function saveReview() {
+    if (!selected || saving) return;
 
-    let notes: string | null = null;
+    const reason = notes.trim();
 
-    if (decision === "REJECTED") {
-      const input = window.prompt(
-        "Informe a justificativa da rejeição em lote:",
-      );
+    if (decision === "REJECTED" && reason.length < 10) {
+      setError("A rejeição exige uma justificativa com 10 caracteres.");
+      return;
+    }
 
-      if (input === null) return;
-
-      notes = input.trim();
-
-      if (!notes) {
-        setError("A rejeição em lote exige justificativa.");
-        return;
-      }
+    if (!selected.imageUrl && decision !== "PENDING") {
+      setError("Não é possível aprovar ou rejeitar uma imagem ausente.");
+      return;
     }
 
     const confirmed = window.confirm(
-      `Confirmar ${statusLabels[decision].toLowerCase()} ` +
-        `para ${selectedIds.length} imagens?\n\n` +
-        "Aprove apenas imagens verificadas visualmente.",
+      `Registrar "${labels[decision]}" para "${selected.name}"?`,
     );
 
     if (!confirmed) return;
 
-    setProcessing(true);
+    setSaving(true);
     setError("");
     setFeedback("");
 
     try {
-      const result = await reviewExerciseImagesBatch({
-        variationIds: selectedIds,
+      await reviewExerciseImage(selected.id, {
         status: decision,
-        notes,
+        notes: reason || null,
       });
 
-      setFeedback(`${result.updated} imagens atualizadas com sucesso.`);
-
-      await loadImages();
+      resetSelection();
+      await load();
+      setFeedback("Avaliação da imagem registrada com sucesso.");
     } catch (err) {
-      setError(getErrorMessage(err));
+      setError(getError(err));
     } finally {
-      setProcessing(false);
+      setSaving(false);
     }
   }
 
-  const selectableIds = variations
-    .filter((variation) => Boolean(variation.imageUrl))
-    .map((variation) => variation.id);
-
-  const allVisibleSelected =
-    selectableIds.length > 0 &&
-    selectableIds.every((id) => selectedIds.includes(id));
+  const hasPrevious = skip > 0;
+  const hasNext = skip + variations.length < total;
 
   return (
     <div className="min-w-0">
       <PageHeader
-        title="Revisão de imagens"
-        description="Verifique e aprove imagens do catálogo global."
+        title="Auditoria de imagens"
+        description="Revise todas as imagens do catálogo global, inclusive as ausentes, sem aprovações automáticas."
       />
 
-      <section className="mb-6 grid gap-3 sm:grid-cols-2">
+      <section className="mb-6 rounded-xl border border-border-default bg-surface p-4">
+        <h2 className="font-semibold">Revisão individual</h2>
+        <p className="mt-2 text-sm text-text-secondary">
+          Verifique a execução representada, posição corporal, equipamentos e
+          segurança. Exercícios sem imagem podem receber observações e
+          permanecer pendentes.
+        </p>
+      </section>
+
+      <div className="mb-6 grid gap-3 md:grid-cols-3">
         <input
           type="search"
           aria-label="Pesquisar imagens"
-          placeholder="Pesquisar código ou nome..."
+          placeholder="Pesquisar nome ou código..."
           value={search}
           onChange={(event) => {
             setSearch(event.target.value);
-            resetPagination();
+            setSkip(0);
+            resetSelection();
           }}
-          className="min-h-11 rounded-lg border border-border-default bg-surface px-3 text-text-primary"
+          className={inputClass}
         />
 
         <select
-          aria-label="Filtrar por status"
+          aria-label="Filtrar status da imagem"
           value={status}
           onChange={(event) => {
             setStatus(event.target.value as ExerciseImageStatus | "");
-            resetPagination();
+            setSkip(0);
+            resetSelection();
           }}
-          className="min-h-11 rounded-lg border border-border-default bg-surface px-3 text-text-primary"
+          className={inputClass}
         >
           <option value="">Todos os status</option>
           <option value="PENDING">Pendentes</option>
           <option value="APPROVED">Aprovadas</option>
           <option value="REJECTED">Rejeitadas</option>
         </select>
-      </section>
+
+        <label className="flex min-h-11 items-center gap-3 rounded-lg border border-border-default px-3">
+          <input
+            type="checkbox"
+            checked={onlyWithoutImage}
+            onChange={(event) => {
+              setOnlyWithoutImage(event.target.checked);
+              setSkip(0);
+              resetSelection();
+            }}
+          />
+          <span className="text-sm">Somente sem imagem</span>
+        </label>
+      </div>
 
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-text-secondary">
-          {total} registros encontrados
+          {loading ? "Carregando..." : `${total} variações encontradas`}
         </p>
-
         <button
           type="button"
-          onClick={() => void loadImages()}
-          disabled={loading || processing}
-          className={`${buttonClass} border border-border-default text-text-primary`}
+          className={buttonClass}
+          disabled={loading || saving}
+          onClick={() => void load()}
         >
-          Atualizar lista
+          Atualizar
         </button>
       </div>
 
       {error && (
-        <div role="alert" className="mb-4 rounded-lg border border-red-500 p-4">
-          <p className="mb-3 text-sm text-red-400">{error}</p>
-
-          <button
-            type="button"
-            onClick={() => void loadImages()}
-            disabled={loading || processing}
-            className={`${buttonClass} border border-border-default text-text-primary`}
-          >
-            Tentar novamente
-          </button>
-        </div>
+        <p
+          role="alert"
+          className="mb-4 rounded-lg border border-red-500 p-4 text-red-400"
+        >
+          {error}
+        </p>
       )}
 
       {feedback && (
         <p
           role="status"
-          className="mb-4 rounded-lg border border-green-600 p-4 text-text-primary"
+          className="mb-4 rounded-lg border border-green-600 p-4"
         >
           {feedback}
         </p>
       )}
 
-      <section className="mb-6 flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={selectAllVisible}
-          disabled={loading || processing || selectableIds.length === 0}
-          className={`${buttonClass} border border-border-default text-text-primary`}
-        >
-          {allVisibleSelected
-            ? "Desmarcar imagens"
-            : "Selecionar imagens da página"}
-        </button>
+      {selected && (
+        <section className="mb-7 rounded-xl border-2 border-green-600 bg-surface p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-semibold">{selected.name}</h2>
+              <p className="text-sm text-text-secondary">{selected.code}</p>
+            </div>
+            <button
+              type="button"
+              className={buttonClass}
+              onClick={resetSelection}
+              disabled={saving}
+            >
+              Fechar
+            </button>
+          </div>
 
-        <span className="text-sm text-text-secondary">
-          {selectedIds.length} selecionadas
-        </span>
+          <div className="mt-4 max-w-xl">
+            <Preview variation={selected} />
+          </div>
 
-        <button
-          type="button"
-          disabled={loading || processing || selectedIds.length === 0}
-          onClick={() => void handleBatchReview("APPROVED")}
-          className={`${buttonClass} bg-green-600 text-white hover:bg-green-700`}
-        >
-          Aprovar selecionadas
-        </button>
+          <p className="mt-4 text-sm">
+            Decisão: <strong>{labels[decision]}</strong>
+          </p>
 
-        <button
-          type="button"
-          disabled={loading || processing || selectedIds.length === 0}
-          onClick={() => void handleBatchReview("REJECTED")}
-          className={`${buttonClass} border border-red-500 text-red-400`}
-        >
-          Rejeitar selecionadas
-        </button>
-      </section>
+          {!selected.imageUrl && (
+            <p className="mt-3 text-sm text-text-secondary">
+              Imagem ausente: registre a necessidade de produção ou inclusão no
+              campo de observações.
+            </p>
+          )}
+
+          <label className="mt-4 grid gap-2 text-sm">
+            Observações da revisão
+            <textarea
+              rows={4}
+              maxLength={2000}
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="Descreva o problema ou a imagem necessária..."
+              className={inputClass}
+            />
+          </label>
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => void saveReview()}
+              disabled={
+                saving || (decision === "REJECTED" && notes.trim().length < 10)
+              }
+              className={`${buttonClass} !border-green-600 !bg-green-600 !text-white`}
+            >
+              {saving ? "Salvando..." : "Confirmar avaliação"}
+            </button>
+            <button
+              type="button"
+              onClick={resetSelection}
+              disabled={saving}
+              className={buttonClass}
+            >
+              Cancelar
+            </button>
+          </div>
+        </section>
+      )}
 
       {loading ? (
-        <p role="status" className="py-6 text-text-secondary">
+        <p role="status" className="py-8">
           Carregando imagens...
         </p>
       ) : variations.length === 0 ? (
-        <div className="rounded-xl border border-border-default bg-surface p-8 text-center text-text-secondary">
-          {error
-            ? "Não foi possível carregar a listagem."
-            : "Nenhuma imagem encontrada para os filtros selecionados."}
-        </div>
+        <p className="rounded-xl border border-border-default bg-surface p-8">
+          Nenhuma variação encontrada.
+        </p>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {variations.map((variation) => (
             <article
               key={variation.id}
-              className="min-w-0 rounded-xl border border-border-default bg-surface p-4"
+              className="rounded-xl border border-border-default bg-surface p-4"
             >
-              <div className="mb-3 flex items-start gap-3">
-                <input
-                  type="checkbox"
-                  aria-label={`Selecionar ${variation.name}`}
-                  checked={selectedIds.includes(variation.id)}
-                  disabled={!variation.imageUrl || processing}
-                  onChange={() => toggleSelection(variation.id)}
-                  className="mt-1 h-5 w-5"
-                />
+              <p className="text-xs text-text-secondary">{variation.code}</p>
+              <h2 className="mb-3 font-semibold">{variation.name}</h2>
 
-                <div className="min-w-0">
-                  <p className="text-xs text-text-secondary">
-                    {variation.code}
-                  </p>
+              <Preview variation={variation} />
 
-                  <h2 className="font-semibold text-text-primary">
-                    {variation.name}
-                  </h2>
-
-                  <p className="text-xs text-text-secondary">
-                    {variation.exercise.name}
-                  </p>
-                </div>
-              </div>
-
-              <ImagePreview
-                imageUrl={variation.imageUrl}
-                name={variation.name}
-              />
-
-              <p className="mb-3 text-sm text-text-secondary">
-                Status: {statusLabels[variation.imageReviewStatus]}
+              <p className="mt-3 text-sm text-text-secondary">
+                {variation.imageUrl
+                  ? "Imagem cadastrada"
+                  : "Sem imagem cadastrada"}
+                {" • "}
+                {labels[variation.imageReviewStatus]}
               </p>
 
               {variation.imageReviewNotes && (
-                <p className="mb-3 text-sm text-text-secondary">
-                  Observação: {variation.imageReviewNotes}
+                <p className="mt-2 whitespace-pre-line text-sm text-text-secondary">
+                  {variation.imageReviewNotes}
                 </p>
               )}
 
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={processing || !variation.imageUrl}
-                  onClick={() => void handleReview(variation, "APPROVED")}
-                  className={`${buttonClass} bg-green-600 text-white hover:bg-green-700`}
-                >
-                  Aprovar
-                </button>
+              <a
+                href={`/admin/catalog?exerciseId=${encodeURIComponent(
+                  variation.exercise.id,
+                )}&variationId=${encodeURIComponent(variation.id)}`}
+                className="mt-4 flex min-h-11 w-full items-center justify-center rounded-lg border border-green-600 px-4 py-2 text-sm font-semibold text-text-primary hover:bg-green-600/10"
+              >
+                Ver ficha técnica completa
+              </a>
 
+              <div className="mt-4 flex flex-wrap gap-2">
+                {variation.imageUrl && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => openReview(variation, "APPROVED")}
+                      disabled={saving}
+                      className={`${buttonClass} !border-green-600`}
+                    >
+                      Aprovar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openReview(variation, "REJECTED")}
+                      disabled={saving}
+                      className={`${buttonClass} !border-red-500`}
+                    >
+                      Rejeitar
+                    </button>
+                  </>
+                )}
                 <button
                   type="button"
-                  disabled={processing || !variation.imageUrl}
-                  onClick={() => void handleReview(variation, "REJECTED")}
-                  className={`${buttonClass} border border-red-500 text-red-400`}
+                  onClick={() => openReview(variation, "PENDING")}
+                  disabled={saving}
+                  className={buttonClass}
                 >
-                  Rejeitar
-                </button>
-
-                <button
-                  type="button"
-                  disabled={processing}
-                  onClick={() => void handleReview(variation, "PENDING")}
-                  className={`${buttonClass} border border-border-default text-text-primary`}
-                >
-                  Pendente
+                  {variation.imageUrl
+                    ? "Marcar pendente"
+                    : "Registrar imagem ausente"}
                 </button>
               </div>
             </article>
@@ -529,26 +423,29 @@ export function AdminExerciseImages() {
 
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-text-secondary">
-          Exibindo {variations.length} de {total} registros
+          Página {Math.floor(skip / PAGE_SIZE) + 1}
         </p>
 
         <div className="flex gap-2">
           <button
             type="button"
-            disabled={loading || processing || skip === 0}
-            onClick={() => setSkip(Math.max(0, skip - PAGE_SIZE))}
-            className={`${buttonClass} border border-border-default text-text-primary`}
+            className={buttonClass}
+            disabled={loading || saving || !hasPrevious}
+            onClick={() => {
+              setSkip(Math.max(0, skip - PAGE_SIZE));
+              resetSelection();
+            }}
           >
             Anterior
           </button>
-
           <button
             type="button"
-            disabled={
-              loading || processing || skip + variations.length >= total
-            }
-            onClick={() => setSkip(skip + PAGE_SIZE)}
-            className={`${buttonClass} border border-border-default text-text-primary`}
+            className={buttonClass}
+            disabled={loading || saving || !hasNext}
+            onClick={() => {
+              setSkip(skip + PAGE_SIZE);
+              resetSelection();
+            }}
           >
             Próxima
           </button>

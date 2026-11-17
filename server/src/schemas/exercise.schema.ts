@@ -130,3 +130,16 @@ export const updateExerciseVariationSchema =
 
 export type UpdateExerciseVariationInput =
   z.infer<typeof updateExerciseVariationSchema>
+
+  export const updateExerciseSchema = createExerciseSchema
+  .omit({ code: true })
+  .partial()
+  .refine(
+    data => Object.keys(data).length > 0,
+    {
+      message: 'Informe pelo menos um campo para atualizar.',
+    },
+  )
+
+export type UpdateExerciseInput =
+  z.infer<typeof updateExerciseSchema>
