@@ -1,30 +1,34 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
-
-import 'package:mobile/main.dart';
+import 'package:mobile/features/auth/presentation/login_page.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  group('Personal Trainer Manager - Autenticação', () {
+    testWidgets('Deve apresentar os campos e o botão de login', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const MaterialApp(home: LoginPage()));
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+      expect(find.text('Personal Trainer Manager'), findsOneWidget);
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+      expect(find.text('E-mail'), findsOneWidget);
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+      expect(find.text('Senha'), findsOneWidget);
+
+      expect(find.text('Entrar'), findsOneWidget);
+    });
+
+    testWidgets('Deve validar campos obrigatórios', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(const MaterialApp(home: LoginPage()));
+
+      await tester.tap(find.text('Entrar'));
+      await tester.pump();
+
+      expect(find.text('Informe seu e-mail.'), findsOneWidget);
+
+      expect(find.text('Informe sua senha.'), findsOneWidget);
+    });
   });
 }
